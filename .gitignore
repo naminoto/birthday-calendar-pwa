@@ -1,0 +1,22 @@
+node_modules/
+dist/
+*.zip
+test-artifacts/
+
+# このフォルダを独立リポジトリにした場合も秘密情報・利用者データを含めない。
+.env
+.env.*
+!.env.example
+backups/
+data/
+uploads/
+*.db
+*.sqlite
+*.sqlite3
+*.sql
+*.dump
+*.bak
+*.pem
+*.key
+*.p12
+*.log

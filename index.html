@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f4f6fb">
+  <meta name="referrer" content="no-referrer">
+  <meta name="description" content="端末だけで大切な人の誕生日を管理する、オフライン対応カレンダー">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Birthday Local">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" href="./icons/icon-192.png">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <title>Birthday Circle Local</title>
+</head>
+<body>
+  <a class="skip" href="#main">本文へ移動</a>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark">✦</span><div><strong>Birthday Circle</strong><small>端末内だけの誕生日ノート</small></div></div>
+      <button class="icon-button bell" id="bell" type="button" aria-label="通知を開く">🔔<span id="unread-badge" hidden>0</span></button>
+    </header>
+    <div class="update-banner" id="update-banner" hidden><span>新しいバージョンを利用できます。データは残ります。</span><button id="update-app" type="button">更新する</button></div>
+    <main id="main">
+      <section class="view" id="view-home">
+        <div class="hero"><p class="eyebrow">HOME · LOCAL ONLY</p><h1>大切な日の、すぐそばに。</h1><p>あなたの人物と記念日は、この端末の中だけに保存されます。</p><button class="primary" id="home-add" type="button">＋ 人物を追加</button></div>
+        <div class="summary-grid" id="summary-grid"></div>
+        <div class="section-heading"><div><p class="eyebrow">UPCOMING</p><h2>もうすぐ誕生日</h2></div><span>30日以内</span></div>
+        <div class="stack" id="home-upcoming"></div>
+        <div class="section-heading"><div><p class="eyebrow">ANNIVERSARIES</p><h2>その他の近日記念日</h2></div><span>14日以内</span></div>
+        <div class="stack" id="home-anniversaries"></div>
+      </section>
+
+      <section class="view" id="view-calendar" hidden>
+        <div class="page-heading"><div><p class="eyebrow">CALENDAR</p><h1>誕生日カレンダー</h1></div><button class="quiet" id="calendar-today" type="button">今月へ</button></div>
+        <div class="calendar-layout">
+          <aside class="panel people-rail"><div class="section-heading compact"><h2>人物</h2><span id="rail-count"></span></div><div class="segmented"><button type="button" data-rail-filter="all" class="active">全員</button><button type="button" data-rail-filter="unregistered">未登録</button></div><p class="help">PCはアイコンをドラッグ。スマホは人物を選んで日付をタップできます。</p><div class="avatar-grid" id="person-rail"></div></aside>
+          <div class="panel calendar-panel"><div class="calendar-toolbar"><button class="icon-button" id="month-prev" type="button" aria-label="前月">‹</button><h2 id="month-title"></h2><button class="icon-button" id="month-next" type="button" aria-label="次月">›</button></div><p class="selection-hint" id="selection-hint">日付をタップすると、その日の人物を確認できます。</p><div class="calendar-grid" id="calendar-grid" role="grid" aria-label="月間カレンダー"></div></div>
+        </div>
+      </section>
+
+      <section class="view" id="view-people" hidden>
+        <div class="page-heading"><div><p class="eyebrow">PEOPLE</p><h1>人物一覧</h1></div><button class="primary" id="people-add" type="button">＋ 追加</button></div>
+        <div class="panel filters"><label>検索<input id="people-search" type="search" placeholder="名前・ユーザー名・メモ"></label><label>カテゴリ<select id="people-category"><option value="ALL">すべて</option></select></label><label>月<select id="people-month"><option value="0">すべて</option></select></label><label>誕生日<select id="people-birthday"><option value="all">全員</option><option value="unregistered">未登録</option><option value="registered">登録済み</option></select></label><label>並び順<select id="people-sort"><option value="name">名前順</option><option value="next">次回誕生日順</option><option value="recent">最近編集した順</option></select></label></div>
+        <p class="result-count" id="people-count"></p><div class="people-list" id="people-list"></div>
+      </section>
+
+      <section class="view" id="view-birthdays" hidden>
+        <div class="page-heading"><div><p class="eyebrow">BIRTHDAYS</p><h1>誕生日一覧</h1></div></div>
+        <div class="panel filters"><label>月<select id="birthday-month"><option value="0">すべて</option></select></label><label>カテゴリ<select id="birthday-category"><option value="ALL">すべて</option></select></label></div>
+        <p class="help">今日から次に迎える誕生日が近い順です。</p><div class="stack" id="birthday-list"></div>
+      </section>
+
+      <section class="view" id="view-settings" hidden>
+        <div class="page-heading"><div><p class="eyebrow">SETTINGS</p><h1>設定とデータ</h1></div></div>
+        <div class="panel setting-card"><h2>誕生日のお知らせ</h2><p class="help">アプリを開いた日に表示する通知です。外部Pushではありません。</p><form id="notification-settings"><label class="check"><input name="enabled" type="checkbox">通知をONにする</label><div class="check-grid"><label class="check"><input name="seven" type="checkbox">7日前</label><label class="check"><input name="three" type="checkbox">3日前</label><label class="check"><input name="one" type="checkbox">前日</label><label class="check"><input name="today" type="checkbox">当日</label></div><button class="primary" type="submit">設定を保存</button></form></div>
+        <div class="panel setting-card"><h2>バックアップと復元</h2><p class="help">人物・画像・通知設定を1つのZIPに保存できます。端末の故障・ブラウザデータ削除に備えて定期的に書き出してください。ZIPは暗号化されません。</p><div class="actions"><button class="primary" id="export-backup" type="button">ZIPを書き出す</button><label class="file-button">ZIPから復元<input id="import-backup" type="file" accept=".zip,application/zip" hidden></label></div><div class="restore-preview" id="restore-preview" hidden></div></div>
+        <div class="panel setting-card"><h2>ストレージ管理</h2><div id="storage-stats" class="stats-list"></div><p class="help">アプリキャッシュだけを清掃できます。人物・画像・設定は消しません。</p><button class="quiet" id="clear-cache" type="button">不要なアプリキャッシュを削除</button></div>
+        <div class="privacy-note">このアプリはログイン・クラウド同期・X APIを使用しません。別端末へ移すときはZIPを使ってください。ブラウザの「サイトデータ削除」ではデータが失われます。</div>
+      </section>
+    </main>
+    <nav class="bottom-nav" aria-label="画面切り替え"><button type="button" data-tab="home"><span>⌂</span>ホーム</button><button type="button" data-tab="calendar"><span>▦</span>カレンダー</button><button type="button" data-tab="people"><span>♙</span>人物</button><button type="button" data-tab="birthdays"><span>◷</span>誕生日</button><button type="button" data-tab="settings"><span>⚙</span>設定</button></nav>
+  </div>
+
+  <dialog id="person-dialog" class="sheet"><div class="dialog-head"><div><p class="eyebrow">PERSON</p><h2 id="person-dialog-title">人物を追加</h2></div><button class="icon-button" type="button" data-close="person-dialog" aria-label="閉じる">×</button></div><form id="person-form" class="form-body"><input id="person-id" type="hidden"><label>表示名 <span class="required">必須</span><input id="person-name" maxlength="100" required></label><label>カテゴリ<select id="person-category"></select></label><label>作品名・所属<input id="person-series" maxlength="200"></label><div class="form-row"><label>誕生月<select id="person-birth-month"><option value="">未登録</option></select></label><label>誕生日<select id="person-birth-day"><option value="">未登録</option></select></label></div><div class="form-row"><label>誕生年（任意）<input id="person-birth-year" type="number" min="1900" max="2100" placeholder="例: 1998"></label><label class="check aligned"><input id="person-show-age" type="checkbox">年齢を表示</label></div><label>X username（任意）<input id="person-username" maxlength="50" placeholder="@username"></label><label>XプロフィールURL（任意）<input id="person-x-url" type="url" placeholder="https://x.com/username"></label><label>プロフィール画像<input id="person-image" type="file" accept="image/jpeg,image/png,image/webp,image/gif"><small>登録時に長辺512pxへ縮小・圧縮します。</small></label><label class="check" id="remove-image-wrap" hidden><input id="person-remove-image" type="checkbox">現在の画像を削除</label><label>メモ<textarea id="person-memo" rows="3" maxlength="5000"></textarea></label><div class="section-heading compact"><h3>その他の記念日</h3><button class="quiet" id="add-anniversary" type="button">＋ 追加</button></div><div id="anniversary-fields" class="repeat-fields"></div><div class="section-heading compact"><h3>関連URL</h3><button class="quiet" id="add-link" type="button">＋ 追加</button></div><div id="link-fields" class="repeat-fields"></div><p class="form-error" id="person-error" role="alert" hidden></p><div class="dialog-actions"><button class="danger-link" id="delete-person" type="button" hidden>人物を削除</button><button class="primary" type="submit">保存する</button></div></form></dialog>
+
+  <dialog id="detail-dialog" class="sheet"><div class="dialog-head"><div><p class="eyebrow">PROFILE</p><h2>人物の詳細</h2></div><button class="icon-button" type="button" data-close="detail-dialog" aria-label="閉じる">×</button></div><div id="detail-body" class="detail-body"></div><div class="dialog-actions"><button class="quiet" id="detail-edit" type="button">編集する</button><button class="primary" id="detail-choose" type="button">誕生日の日付を選ぶ</button></div></dialog>
+  <dialog id="notification-dialog" class="sheet"><div class="dialog-head"><div><p class="eyebrow">NOTIFICATIONS</p><h2>誕生日のお知らせ</h2></div><button class="icon-button" type="button" data-close="notification-dialog" aria-label="閉じる">×</button></div><p class="help">アプリを開いた日の通知です。Push通知ではありません。</p><button class="quiet" id="read-all" type="button">すべて既読</button><div class="stack" id="notification-list"></div></dialog>
+  <div id="toast" class="toast" role="status" hidden></div>
+  <script type="module" src="./src/app.js"></script>
+</body>
+</html>

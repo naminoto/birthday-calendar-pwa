@@ -1,10 +1,10 @@
 import { DEFAULT_SETTINGS, birthdayOf, normalizePerson } from './model.js';
 
 export const DB_NAME = 'birthday-circle-local';
-export const DB_VERSION = 2;
+export const DB_VERSION = 3;
 export const STORES = ['people', 'images', 'settings', 'notifications'];
 
-// version 1: 人物・画像・設定。version 2: 既存行を残したまま通知storeを追加。
+// v3: 人物内の旧固定記念日に安定IDと新設定を付与。画像・設定は変更しません。
 export function openDatabase(name = DB_NAME, version = DB_VERSION) {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(name, version);
@@ -17,6 +17,25 @@ export function openDatabase(name = DB_NAME, version = DB_VERSION) {
       }
       if (event.oldVersion < 2 && event.newVersion >= 2) {
         db.createObjectStore('notifications', { keyPath: 'id' });
+      }
+      if (event.oldVersion < 3 && event.newVersion >= 3) {
+        const requestCursor = request.transaction.objectStore('people').openCursor();
+        requestCursor.onsuccess = () => {
+          const cursor = requestCursor.result;
+          if (!cursor) return;
+          const person = cursor.value;
+          const anniversaries = person.anniversaries ?? [];
+          const migrated = anniversaries.map((ann) => ann.type === 'BIRTHDAY' ? ann : ({
+            ...ann, id: ann.id ?? crypto.randomUUID(), title: ann.title ?? null,
+            recurring: ann.recurring !== false, showAnniversary: ann.showAnniversary === true,
+            notify: ann.notify === true,
+          }));
+          if (!Array.isArray(person.anniversaries)
+            || migrated.some((ann, index) => JSON.stringify(ann) !== JSON.stringify(anniversaries[index]))) {
+            cursor.update({ ...person, anniversaries: migrated });
+          }
+          cursor.continue();
+        };
       }
     };
     request.onsuccess = () => {
@@ -65,6 +84,18 @@ export async function saveSettings(db, settings) {
   await completed(tx);
 }
 
+// 言語は既存settings storeの別キー。IndexedDBのversionや人物データは変更しない。
+export async function loadLanguage(db) {
+  return (await get(db, 'settings', 'language'))?.value === 'en' ? 'en' : 'ja';
+}
+
+export async function saveLanguage(db, language) {
+  if (!['ja', 'en'].includes(language)) throw new Error('対応していない言語です。');
+  const tx = db.transaction('settings', 'readwrite');
+  tx.objectStore('settings').put({ key: 'language', value: language });
+  await completed(tx);
+}
+
 // 人物・画像・関連通知を1トランザクションで更新し、途中失敗時には全て元のまま残します。
 export async function savePerson(db, input, { image = null, removeImage = false } = {}) {
   if (image && removeImage) throw new Error('画像の追加と削除は同時に指定できません。');
@@ -75,14 +106,21 @@ export async function savePerson(db, input, { image = null, removeImage = false 
   const oldBirthday = old && birthdayOf(old);
   const newBirthday = birthdayOf(person);
   const changedBirthday = JSON.stringify(oldBirthday ?? null) !== JSON.stringify(newBirthday ?? null);
-  const existingNotifications = changedBirthday ? await all(db, 'notifications') : [];
+  const oldAnniversaries = new Map((old?.anniversaries ?? []).filter((ann) => ann.type !== 'BIRTHDAY')
+    .map((ann) => [ann.id, ann]));
+  const newAnniversaries = new Map(person.anniversaries.filter((ann) => ann.type !== 'BIRTHDAY')
+    .map((ann) => [ann.id, ann]));
+  const changedAnniversaryIds = new Set([...oldAnniversaries.keys()].filter((id) =>
+    JSON.stringify(oldAnniversaries.get(id)) !== JSON.stringify(newAnniversaries.get(id))));
+  const existingNotifications = changedBirthday || changedAnniversaryIds.size ? await all(db, 'notifications') : [];
   const tx = db.transaction(['people', 'images', 'notifications'], 'readwrite');
   tx.objectStore('people').put(person);
   if (image) tx.objectStore('images').put({ personId: person.id, blob: image, type: image.type || 'image/jpeg' });
   if (removeImage) tx.objectStore('images').delete(person.id);
-  if (changedBirthday) {
+  if (changedBirthday || changedAnniversaryIds.size) {
     for (const notice of existingNotifications) {
-      if (notice.personId === person.id) tx.objectStore('notifications').delete(notice.id);
+      if (notice.personId === person.id && (changedBirthday && !notice.anniversaryId
+        || changedAnniversaryIds.has(notice.anniversaryId))) tx.objectStore('notifications').delete(notice.id);
     }
   }
   await completed(tx);
@@ -133,6 +171,7 @@ export async function replaceAllData(db, snapshot) {
   for (const person of snapshot.people) tx.objectStore('people').put(person);
   for (const image of snapshot.images) tx.objectStore('images').put(image);
   tx.objectStore('settings').put({ key: 'notifications', value: snapshot.settings });
+  tx.objectStore('settings').put({ key: 'language', value: snapshot.language === 'en' ? 'en' : 'ja' });
   for (const notice of snapshot.notifications) tx.objectStore('notifications').put(notice);
   await completed(tx);
 }

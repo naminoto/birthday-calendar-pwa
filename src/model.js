@@ -4,7 +4,7 @@ export const CATEGORIES = Object.freeze({
 });
 export const ANNIVERSARY_TYPES = Object.freeze({
   BIRTHDAY: '誕生日', OSHI_START: '推し始めた日', FRIEND_SINCE: '友だちになった日',
-  WORK_RELEASE: '作品公開日', WEDDING_ANNIVERSARY: '結婚記念日',
+  WORK_RELEASE: '作品公開日', WEDDING_ANNIVERSARY: '結婚記念日', CUSTOM: '記念日',
 });
 export const TIMINGS = [7, 3, 1, 0];
 export const DEFAULT_SETTINGS = Object.freeze({ enabled: true, seven: true, three: true, one: true, today: true });
@@ -32,7 +32,7 @@ export function validMonthDay(month, day) {
     && day >= 1 && day <= new Date(Date.UTC(2000, month, 0)).getUTCDate();
 }
 
-function occurrenceInYear(anniversary, year) {
+export function occurrenceInYear(anniversary, year) {
   const day = anniversary.month === 2 && anniversary.day === 29
     && new Date(Date.UTC(year, 1, 29)).getUTCMonth() !== 1 ? 28 : anniversary.day;
   return `${year}-${String(anniversary.month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
@@ -44,6 +44,55 @@ export function nextOccurrence(anniversary, today) {
   const { year } = dateParts(today);
   const thisYear = occurrenceInYear(anniversary, year);
   return thisYear >= today ? thisYear : occurrenceInYear(anniversary, year + 1);
+}
+
+// 一度きりの日付は過去になれば候補から外し、毎年型だけ次回を探します。
+export function nextEventOccurrence(anniversary, today) {
+  if (anniversary.recurring === false) {
+    if (!anniversary.year) return null;
+    const date = occurrenceInYear(anniversary, anniversary.year);
+    return date >= today ? date : null;
+  }
+  const date = nextOccurrence(anniversary, today);
+  return anniversary.year && Number(date.slice(0, 4)) < anniversary.year
+    ? occurrenceInYear(anniversary, anniversary.year) : date;
+}
+
+export function occurrenceForYear(anniversary, year) {
+  if (anniversary.recurring === false && anniversary.year !== year) return null;
+  if (anniversary.year && year < anniversary.year) return null;
+  return occurrenceInYear(anniversary, year);
+}
+
+export function anniversaryYears(anniversary, occurrenceDate) {
+  if (!anniversary.year || !anniversary.showAnniversary || !occurrenceDate) return null;
+  const years = Number(occurrenceDate.slice(0, 4)) - anniversary.year;
+  return years > 0 ? years : null;
+}
+
+export function anniversaryRows(people, today) {
+  return people.flatMap((person) => (person.anniversaries ?? [])
+    .filter((ann) => ann.type !== 'BIRTHDAY')
+    .map((ann) => ({ person, ann, nextDate: nextEventOccurrence(ann, today) }))
+    .filter((row) => row.nextDate)
+    .map((row) => ({ ...row, daysUntil: daysBetween(today, row.nextDate) })))
+    .sort((a, b) => a.daysUntil - b.daysUntil || a.person.displayName.localeCompare(b.person.displayName, 'ja'));
+}
+
+export function calendarEvents(people, year, month, category = 'ALL', eventType = 'ALL') {
+  const byDay = new Map();
+  for (const person of people) {
+    if (category !== 'ALL' && person.category !== category) continue;
+    for (const ann of person.anniversaries ?? []) {
+      if (eventType === 'BIRTHDAY' && ann.type !== 'BIRTHDAY'
+        || eventType === 'ANNIVERSARY' && ann.type === 'BIRTHDAY') continue;
+      const date = occurrenceForYear(ann, year);
+      if (!date || Number(date.slice(5, 7)) !== month) continue;
+      if (!byDay.has(date)) byDay.set(date, []);
+      byDay.get(date).push({ person, ann, date });
+    }
+  }
+  return byDay;
 }
 
 export function daysBetween(from, to) {
@@ -99,6 +148,7 @@ export function normalizePerson(input, existing = null, now = new Date().toISOSt
     xProfileUrl = `https://x.com/${segments[0]}`;
   }
   const resolvedUsername = username ?? (xProfileUrl ? xProfileUrl.split('/').at(-1) : null);
+  if (!Array.isArray(input.anniversaries ?? [])) throw new Error('記念日のデータが正しくありません。');
   const anniversaries = (input.anniversaries ?? []).map((item) => {
     const month = Number(item.month); const day = Number(item.day);
     const year = item.year === '' || item.year == null ? null : Number(item.year);
@@ -107,11 +157,30 @@ export function normalizePerson(input, existing = null, now = new Date().toISOSt
       || (year !== null && new Date(Date.UTC(year, month - 1, day)).getUTCDate() !== day)) {
       throw new Error('記念日の種類または日付が正しくありません。');
     }
-    return { type: item.type, month, day, year, showAge: Boolean(item.showAge) };
+    if (item.type === 'BIRTHDAY') return { type: 'BIRTHDAY', month, day, year, showAge: Boolean(item.showAge) };
+    if (item.title != null && typeof item.title !== 'string') {
+      throw new Error('記念日の名称は1〜100文字で入力してください。');
+    }
+    const title = item.title == null ? null : item.title.trim();
+    if ((item.type === 'CUSTOM' && !title) || (title !== null && (title.length < 1 || title.length > 100))) {
+      throw new Error('記念日の名称は1〜100文字で入力してください。');
+    }
+    const recurring = item.recurring !== false;
+    if ([item.recurring, item.showAnniversary, item.notify].some((value) =>
+      value != null && typeof value !== 'boolean')) throw new Error('記念日の設定が正しくありません。');
+    if (!recurring && year === null) throw new Error('繰り返さない記念日には年を入力してください。');
+    const id = item.id ?? crypto.randomUUID();
+    if (typeof id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+      throw new Error('記念日IDが正しくありません。');
+    }
+    return { id, type: item.type, title, month, day, year, recurring,
+      showAnniversary: item.showAnniversary === true, notify: item.notify === true };
   });
   if (anniversaries.filter((item) => item.type === 'BIRTHDAY').length > 1) {
     throw new Error('誕生日は1人につき1件までです。');
   }
+  const anniversaryIds = anniversaries.filter((item) => item.id).map((item) => item.id);
+  if (new Set(anniversaryIds).size !== anniversaryIds.length) throw new Error('記念日IDが重複しています。');
   const links = (input.links ?? []).map((item) => {
     const url = String(item.url ?? '').trim(); const label = String(item.label ?? '').trim();
     if (!url || url.length > 2048 || label.length > 50) throw new Error('関連URLまたはラベルが長すぎます。');

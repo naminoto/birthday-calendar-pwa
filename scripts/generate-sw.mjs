@@ -4,6 +4,7 @@ import { join, relative, sep } from 'node:path';
 
 const dist = new URL('../dist/', import.meta.url);
 const template = new URL('../src/sw-template.js', import.meta.url);
+const appVersion = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).version;
 async function filesIn(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
   const files = [];
@@ -29,6 +30,7 @@ const hash = createHash('sha256');
 for (const file of files) { hash.update(relative(root, file)); hash.update(await readFile(file)); }
 const cacheVersion = hash.digest('hex').slice(0, 16);
 const source = (await readFile(template, 'utf8'))
-  .replace('__CACHE_VERSION__', cacheVersion).replace('__PRECACHE_JSON__', JSON.stringify(paths));
+  .replace('__CACHE_VERSION__', cacheVersion).replace('__APP_VERSION__', appVersion)
+  .replace('__PRECACHE_JSON__', JSON.stringify(paths));
 await writeFile(new URL('../dist/sw.js', import.meta.url), source);
 console.log(`Service Worker version: ${cacheVersion}, ${paths.length} assets`);

@@ -58,6 +58,8 @@ for (const [name, size] of [['icon-192.png', 192], ['icon-512.png', 512],
   `${name}の実画像寸法が不正です。`);
 }
 const sw = await readFile(join(root, 'sw.js'), 'utf8');
+const appVersion = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).version;
+assert(sw.includes(`const APP_VERSION = '${appVersion}'`), 'Service WorkerとアプリのVersionが一致しません。');
 const list = sw.match(/const PRECACHE = (\[[^;]+\]);/);
 assert(list, 'Service Workerのプリキャッシュ一覧がありません。');
 const cachedPaths = JSON.parse(list[1]).map((name) => name.replace(/^\.\//, '')).sort();

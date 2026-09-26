@@ -1,0 +1,54 @@
+/* iOSの入力フォーカス時ズームを避ける。ピンチズーム自体は無効にしない。 */
+input:not([type=checkbox]):not([type=radio]):not([type=hidden]),
+select,
+textarea { font-size: 16px; }
+input::file-selector-button { font: inherit; }
+
+.image-preview { display: flex; align-items: center; gap: 12px; padding: 9px 0; color: var(--muted); font-size: .85rem; }
+.image-preview img { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; background: var(--soft); }
+.crop-sheet { width: min(520px, calc(100vw - 24px)); max-height: 90dvh; overflow-y: auto; margin: auto; left: 0; right: 0; }
+.crop-sheet .dialog-head h2 { margin: 0; font-size: 1.25rem; }
+.crop-viewport { position: relative; width: min(100%, 320px); aspect-ratio: 1; margin: 14px auto; overflow: hidden; background: #ececf4; border: 1px solid var(--line); border-radius: 12px; touch-action: none; cursor: grab; }
+.crop-viewport:active { cursor: grabbing; }
+.crop-image { position: absolute; max-width: none; max-height: none; user-select: none; pointer-events: none; }
+.crop-guide { position: absolute; inset: 0; border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 0 110px #17172587, inset 0 0 0 1px #27274766; pointer-events: none; }
+.crop-zoom { display: block; color: var(--ink); font-weight: 700; }
+.crop-zoom input { display: block; width: 100%; min-height: 44px; margin-top: 5px; accent-color: var(--brand); }
+.crop-sheet .dialog-actions { justify-content: space-between; }
+
+.update-banner { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 14px; margin:0 0 14px; border:1px solid #bdb4f8; border-radius:12px; background:#f1eeff; color:var(--ink); }
+.update-banner[hidden] { display:none; }
+.update-actions { display:flex; gap:8px; flex-shrink:0; }
+.update-actions button { min-height:44px; border:1px solid var(--brand); border-radius:9px; padding:8px 12px; background:white; color:var(--brand); font:inherit; font-weight:700; }
+.update-actions #update-app { background:var(--brand); color:white; }
+.calendar-category-filter { display:flex; align-items:center; gap:10px; margin:12px 0 4px; color:var(--muted); font-size:.9rem; font-weight:700; }
+.calendar-category-filter select, .language-picker select { min-height:44px; min-width:160px; border:1px solid var(--line); border-radius:9px; padding:7px 10px; background:white; color:var(--ink); }
+.language-picker select { width:100%; }
+@media(max-width:520px) {
+  .update-banner { flex-direction:column; align-items:stretch; }
+  .update-actions { justify-content:flex-end; }
+  .calendar-category-filter select { flex:1; min-width:0; }
+}
+
+.calendar-filters { display:flex; flex-wrap:wrap; gap:8px 16px; }
+.calendar-filters .calendar-category-filter { flex:1 1 160px; min-width:0; }
+.calendar-filters select { max-width:100%; }
+.day-cell .day-avatars { display:flex; flex-direction:column; width:100%; min-width:0; overflow:hidden; }
+.calendar-event { display:flex; align-items:center; gap:2px; min-width:0; width:100%;
+  padding:1px 2px; border-radius:4px; background:#edf1ff; color:#343b74; font-size:10px; line-height:1.35; }
+.calendar-event.anniversary-event { background:#fff0f4; color:#8c3155; }
+.calendar-event .event-mark { flex:none; }
+.calendar-event .event-name { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.anniversary-edit { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)) auto; align-items:end; }
+.anniversary-edit > label:first-child { grid-column:1 / -1; }
+.anniversary-edit > label.check { display:flex; align-items:center; gap:5px; min-width:0; font-size:.88rem; }
+.anniversary-edit > label.check input { flex:none; }
+.anniversary-edit > button { grid-column:4; grid-row:2 / 4; }
+.anniversary-hint { grid-column:1 / -1; color:var(--muted); }
+@media(max-width:520px) {
+  .calendar-event .event-name { display:none; }
+  .calendar-event { width:max-content; max-width:100%; padding:0 2px; }
+  .anniversary-edit { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .anniversary-edit > button { grid-column:2; grid-row:auto; justify-self:end; }
+  .anniversary-edit > label.check { grid-column:1 / -1; }
+}

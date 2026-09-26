@@ -1,9 +1,13 @@
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate';
 import { all, loadSettings, replaceAllData, storageSummary } from './db.js';
-import { DEFAULT_SETTINGS, birthdayOf, dateParts, normalizePerson, TIMINGS } from './model.js';
+import { loadLanguage } from './db.js';
+import { DEFAULT_SETTINGS, birthdayOf, dateParts, normalizePerson, TIMINGS,
+  occurrenceForYear } from './model.js';
+import { anniversaryNotificationId, notificationId } from './notifications.js';
+import { APP_VERSION } from './version.js';
 
 export const BACKUP_FORMAT_VERSION = 1;
-export const APP_VERSION = '1.0.0';
+export { APP_VERSION };
 const MAX_ARCHIVE_BYTES = 128 * 1024 * 1024;
 const MAX_UNPACKED_BYTES = 160 * 1024 * 1024;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -14,8 +18,8 @@ async function sha256(bytes) {
 }
 
 export async function createBackup(db) {
-  const [people, images, notifications, settings] = await Promise.all([
-    all(db, 'people'), all(db, 'images'), all(db, 'notifications'), loadSettings(db),
+  const [people, images, notifications, settings, language] = await Promise.all([
+    all(db, 'people'), all(db, 'images'), all(db, 'notifications'), loadSettings(db), loadLanguage(db),
   ]);
   const integrity = await storageSummary(db);
   if (integrity.missing.length || integrity.orphan.length) {
@@ -28,7 +32,7 @@ export async function createBackup(db) {
     files[path] = new Uint8Array(await image.blob.arrayBuffer());
     imageRecords.push({ personId: image.personId, path, type: image.type });
   }
-  files['data.json'] = strToU8(JSON.stringify({ people, notifications, settings, images: imageRecords }));
+  files['data.json'] = strToU8(JSON.stringify({ people, notifications, settings, language, images: imageRecords }));
   if (Object.values(files).reduce((sum, bytes) => sum + bytes.length, 0) > MAX_ARCHIVE_BYTES - 1024 * 1024) {
     throw new Error('バックアップの容量が上限を超えています。画像を整理してから再試行してください。');
   }
@@ -94,13 +98,21 @@ function validateData(data, files) {
   if (imageIds.size !== images.length || people.some((person) => person.hasImage !== imageIds.has(person.id))) {
     throw new Error('画像と人物の参照が一致しません。');
   }
+  const personById = new Map(people.map((person) => [person.id, person]));
   const notifications = data.notifications.map((notice) => {
-    if (!personIds.has(notice.personId) || !TIMINGS.includes(notice.daysBefore)
-      || notice.id !== `${notice.personId}:${notice.birthdayDate}:${notice.daysBefore}`
-      || !birthdayOf(people.find((person) => person.id === notice.personId))) {
+    const person = personById.get(notice.personId);
+    const ann = notice.anniversaryId && person?.anniversaries.find((item) => item.id === notice.anniversaryId);
+    const expectedId = notice.anniversaryId
+      ? anniversaryNotificationId(notice.personId, notice.anniversaryId, notice.birthdayDate, notice.daysBefore)
+      : notificationId(notice.personId, notice.birthdayDate, notice.daysBefore);
+    if (!person || !TIMINGS.includes(notice.daysBefore) || notice.id !== expectedId
+      || (notice.anniversaryId ? !ann || !ann.notify : !birthdayOf(person))) {
       throw new Error('通知の人物参照が正しくありません。');
     }
-    dateParts(notice.birthdayDate);
+    const { year } = dateParts(notice.birthdayDate);
+    if (notice.anniversaryId && occurrenceForYear(ann, year) !== notice.birthdayDate) {
+      throw new Error('通知の記念日参照が正しくありません。');
+    }
     return notice;
   });
   if (new Set(notifications.map((notice) => notice.id)).size !== notifications.length) {
@@ -108,7 +120,10 @@ function validateData(data, files) {
   }
   const settings = Object.fromEntries(Object.keys(DEFAULT_SETTINGS)
     .map((key) => [key, Boolean(data.settings[key])]));
-  return { people, images, notifications, settings };
+  if (data.language != null && !['ja', 'en'].includes(data.language)) {
+    throw new Error('バックアップの言語設定が正しくありません。');
+  }
+  return { people, images, notifications, settings, language: data.language ?? 'ja' };
 }
 
 // 書き込み前にZIP構造・各ハッシュ・参照整合性・形式Versionを全件確認します。

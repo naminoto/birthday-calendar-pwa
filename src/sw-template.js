@@ -1,4 +1,5 @@
 const SCOPE = self.registration.scope;
+const APP_VERSION = '__APP_VERSION__';
 const CACHE_PREFIX = 'birthday-circle-shell-' + encodeURIComponent(new URL(SCOPE).pathname) + '-';
 const CACHE_NAME = CACHE_PREFIX + '__CACHE_VERSION__';
 const PRECACHE = __PRECACHE_JSON__;
@@ -21,7 +22,7 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('message', (event) => {
   if (event.data?.type === 'SKIP_WAITING') self.skipWaiting();
-  if (event.data?.type === 'CACHE_NAME') event.ports[0]?.postMessage({ cacheName: CACHE_NAME });
+  if (event.data?.type === 'CACHE_NAME') event.ports[0]?.postMessage({ cacheName: CACHE_NAME, appVersion: APP_VERSION });
 });
 
 self.addEventListener('fetch', (event) => {

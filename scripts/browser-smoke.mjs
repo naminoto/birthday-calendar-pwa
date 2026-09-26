@@ -117,7 +117,7 @@ try {
   }))()`);
   check(english.hero === 'Keep meaningful days close.' && english.calendar === 'Birthday & anniversary calendar'
     && english.backup === 'Backup & restore' && english.form.startsWith('Display name')
-    && english.crop === 'Adjust image' && english.version === '1.2.0' && english.category === 'Pet'
+    && english.crop === 'Adjust image' && english.version === '1.2.1' && english.category === 'Pet'
     && english.residualText.length === 0,
     `英語画面の翻訳が不足しています: ${JSON.stringify(english)}`);
   await evaluate(`(()=>{document.querySelector('#people-add').click();
@@ -362,6 +362,13 @@ try {
   await evaluate('document.querySelector("#update-later").click()');
   check(await evaluate('document.querySelector("#update-banner").hidden && !!document.querySelector("#person-rail .avatar-person")'),
     'あとでを選択した後に通常利用できません。');
+  await evaluate(`(()=>{window.dispatchEvent(new Event('pagehide'));
+    window.dispatchEvent(new Event('pageshow'));})()`);
+  check(await evaluate('!document.querySelector("#update-banner").hidden'),
+    '同じdocumentでPWAを再開した際に待機中の更新案内が戻りません。');
+  await evaluate('document.querySelector("#update-later").click()');
+  check(await evaluate('document.querySelector("#update-banner").hidden'),
+    '再度「あとで」を押した同一前面セッションで案内が残っています。');
   const waitingCache = await evaluate('caches.keys()');
   check(waitingCache.filter(name => name.startsWith('birthday-circle-shell-%2Fbirthday-circle%2F-')).length === 2,
     '新旧キャッシュが更新待ち中に揃っていません。');

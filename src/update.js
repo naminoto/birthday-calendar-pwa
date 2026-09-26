@@ -9,11 +9,15 @@ export async function setupUpdates({ t, errorText = (error) => error.message, co
   const updateButton = document.getElementById('update-app');
   const laterButton = document.getElementById('update-later');
   let registration, dismissed = null, updating = false, reloaded = false, changedElsewhere = false, timer;
+  let wasBackgrounded = false;
   let hadController = Boolean(navigator.serviceWorker.controller);
+  const hasPriorVersion = () => Boolean(navigator.serviceWorker.controller || registration?.active);
   const show = () => {
     if (updating) return;
     const waiting = registration?.waiting;
-    if ((!waiting || waiting === dismissed) && !changedElsewhere) { banner.hidden = true; return; }
+    if ((!waiting || !hasPriorVersion() || waiting === dismissed) && !changedElsewhere) {
+      banner.hidden = true; return;
+    }
     message.textContent = t('updateAvailable');
     updateButton.textContent = t('updateNow'); laterButton.textContent = t('updateLater');
     updateButton.disabled = false; laterButton.hidden = false; banner.hidden = false;
@@ -23,11 +27,12 @@ export async function setupUpdates({ t, errorText = (error) => error.message, co
     registration = await navigator.serviceWorker.register(new URL('./sw.js', document.baseURI), {
       scope: new URL('./', document.baseURI).pathname,
     });
-    if (registration.waiting && navigator.serviceWorker.controller) show();
+    // 起動時点ですでにwaitingの場合、updatefoundは再発火しないため必ず確認する。
+    show();
     registration.addEventListener('updatefound', () => {
       const worker = registration.installing;
       worker?.addEventListener('statechange', () => {
-        if (worker.state === 'installed' && navigator.serviceWorker.controller) {
+        if (worker.state === 'installed' && hasPriorVersion()) {
           dismissed = null; show();
         }
       });
@@ -71,9 +76,26 @@ export async function setupUpdates({ t, errorText = (error) => error.message, co
         try { localStorage.setItem(CHECK_KEY, String(Date.now())); } catch { /* 保存禁止環境でも更新可能 */ }
       } catch { /* オフライン・一時エラーでも現在のアプリを維持 */ }
     };
+    const resume = () => {
+      if (wasBackgrounded) {
+        wasBackgrounded = false;
+        // iOSのホーム画面PWAは同じdocumentを再利用することがある。
+        // 「あとで」は前面にいる間だけ有効にし、復帰時にwaitingを再提示する。
+        dismissed = null;
+        show();
+      }
+      void check();
+    };
     // register自体にも更新確認はある。明示チェックは最大6時間に1回。
     void check();
-    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') void check(); });
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') wasBackgrounded = true;
+      else if (document.visibilityState === 'visible') resume();
+    });
+    if (typeof window !== 'undefined') {
+      window.addEventListener('pagehide', () => { wasBackgrounded = true; });
+      window.addEventListener('pageshow', resume);
+    }
     return { refreshLanguage, check, show };
   } catch { return null; }
 }

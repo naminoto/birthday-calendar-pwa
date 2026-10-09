@@ -2,7 +2,8 @@ import 'fake-indexeddb/auto';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { zipSync, strToU8, unzipSync, strFromU8 } from 'fflate';
-import { openDatabase, all, savePerson, get, storageSummary, saveLanguage, loadLanguage } from '../src/db.js';
+import { openDatabase, all, savePerson, deletePerson, get, storageSummary, saveLanguage, loadLanguage,
+  loadSettings, saveSettings } from '../src/db.js';
 import { createBackup, inspectBackup, restoreBackup, migrateBackupData } from '../src/backup.js';
 
 const fresh = () => openDatabase(`backup-${crypto.randomUUID()}`);
@@ -146,4 +147,43 @@ test('旧ZIPに記念日配列がない人物は0件として復元する', asyn
   await restoreBackup(db, prepared);
   assert.deepEqual((await get(db, 'people', saved.id)).anniversaries, []);
   db.close();
+});
+
+test('端末移行は移行元の追加・編集・削除を含む全状態で移行先を完全置換する', async () => {
+  const source = await fresh(); const destination = await fresh();
+  const first = await savePerson(source, fixture, { image:new Blob(['source-image'], { type:'image/webp' }) });
+  const removed = await savePerson(source, { displayName:'あとで削除', anniversaries:[] });
+  await restoreBackup(destination, await inspectBackup(await createBackup(source)));
+  const destinationOnly = await savePerson(destination, { displayName:'移行先だけの人物', anniversaries:[] });
+  await savePerson(destination, { ...(await get(destination, 'people', first.id)), displayName:'移行先での編集' });
+  await savePerson(source, { ...first, displayName:'移行元の変更後', memo:'更新されたメモ',
+    anniversaries:[...first.anniversaries,
+      { type:'CUSTOM', title:'出会った日', month:5, day:10, year:2024, recurring:true,
+        showAnniversary:true, notify:true },
+      { type:'CUSTOM', title:'推し始め', month:8, day:15, recurring:true, notify:false }] });
+  await deletePerson(source, removed.id);
+  await saveSettings(source, { enabled:true, seven:false, three:true, one:false, today:true });
+  await saveLanguage(source, 'en');
+  const { synchronizeNotifications } = await import('../src/notifications.js');
+  await synchronizeNotifications(source, '2027-05-07');
+  const prepared = await inspectBackup(await createBackup(source));
+  assert.equal(prepared.manifest.formatVersion, 1);
+  assert.equal(prepared.summary.people, 1);
+  await restoreBackup(destination, prepared);
+  const people = await all(destination, 'people');
+  assert.deepEqual(people.map((person) => person.id), [first.id]);
+  assert.equal(await get(destination, 'people', removed.id), undefined, '移行元で削除した人物は復活しない');
+  assert.equal(await get(destination, 'people', destinationOnly.id), undefined, '移行先だけの人物は残らない');
+  assert.equal(people[0].displayName, '移行元の変更後');
+  assert.equal(people[0].memo, '更新されたメモ');
+  assert.equal(people[0].anniversaries.length, 3);
+  assert.deepEqual(people[0].anniversaries[0].month, 2);
+  assert.equal(people[0].links[0].url, 'https://example.com/');
+  assert.equal((await get(destination, 'images', first.id)).blob.size, 12);
+  assert.deepEqual(await loadSettings(destination), await loadSettings(source));
+  assert.equal(await loadLanguage(destination), 'en');
+  assert.deepEqual((await all(destination, 'notifications')).map((notice) => notice.id),
+    (await all(source, 'notifications')).map((notice) => notice.id));
+  assert.deepEqual((await storageSummary(destination)).orphan, []);
+  source.close(); destination.close();
 });

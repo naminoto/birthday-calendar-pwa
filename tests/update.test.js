@@ -103,3 +103,87 @@ test('初回インストールは更新扱いせず、既存activeとwaitingが�
     }
   }
 });
+
+async function withUpdateScreen(run, { controlled = true, online = true, update = async () => {} } = {}) {
+  const names = ['navigator', 'document', 'location', 'localStorage', 'window'];
+  const originals = new Map(names.map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
+  const ids = ['update-banner', 'update-message', 'update-app', 'update-later',
+    'settings-update-status', 'settings-check-update', 'settings-apply-update'];
+  const elements = new Map(ids.map((id) => [id, { hidden:true, disabled:false, textContent:'', onclick:null }]));
+  const document = new EventTarget(); document.baseURI = 'https://example.com/repo/';
+  document.visibilityState = 'visible'; document.getElementById = (id) => elements.get(id);
+  const registration = new EventTarget(); registration.active = controlled ? {} : null;
+  registration.waiting = null; registration.update = update;
+  const serviceWorker = new EventTarget(); serviceWorker.controller = controlled ? {} : null;
+  serviceWorker.register = async () => registration;
+  let reloads = 0;
+  const values = { document, navigator:{ serviceWorker, onLine:online },
+    location:{ reload:() => { reloads++; } }, window:new EventTarget(),
+    localStorage:{ getItem:() => null, setItem:() => {} } };
+  for (const [name, value] of Object.entries(values))
+    Object.defineProperty(globalThis, name, { configurable:true, value });
+  try {
+    const manager = await setupUpdates({ t:(key) => key });
+    await run({ manager, elements, registration, serviceWorker, reloads:() => reloads });
+  } finally {
+    for (const name of names) {
+      const descriptor = originals.get(name);
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else delete globalThis[name];
+    }
+  }
+}
+
+test('設定から明示確認し、確認中・検出なし・更新発見を表示する。延期後も設定から更新できる', async () => {
+  let finishCheck, checks = 0, posts = 0;
+  await withUpdateScreen(async ({ manager, elements, registration, serviceWorker, reloads }) => {
+    await new Promise(setImmediate);
+    assert.equal(elements.get('settings-update-status').textContent, 'updateNoneFound');
+    assert.equal(elements.get('settings-apply-update').hidden, true);
+    const pending = manager.checkNow();
+    assert.equal(elements.get('settings-update-status').textContent, 'updateChecking');
+    assert.equal(elements.get('settings-check-update').disabled, true);
+    finishCheck(); await pending;
+    assert.equal(elements.get('settings-update-status').textContent, 'updateNoneFound');
+    assert.equal(checks, 2, '手動確認は自動確認の6時間制限を受けない');
+    const worker = new EventTarget(); worker.state = 'installed';
+    worker.postMessage = () => { posts++; };
+    registration.waiting = worker; registration.installing = worker;
+    registration.dispatchEvent(new Event('updatefound'));
+    worker.dispatchEvent(new Event('statechange'));
+    assert.equal(elements.get('settings-update-status').textContent, 'updateAvailable');
+    assert.equal(elements.get('update-banner').hidden, false);
+    elements.get('update-later').onclick();
+    assert.equal(elements.get('update-banner').hidden, true);
+    assert.equal(elements.get('settings-apply-update').hidden, false);
+    elements.get('settings-apply-update').onclick();
+    assert.equal(posts, 1);
+    assert.equal(elements.get('settings-update-status').textContent, 'updateApplying');
+    assert.equal(elements.get('settings-apply-update').disabled, true);
+    serviceWorker.dispatchEvent(new Event('controllerchange'));
+    serviceWorker.dispatchEvent(new Event('controllerchange'));
+    assert.equal(reloads(), 1);
+    manager.refreshLanguage();
+    assert.equal(elements.get('settings-update-status').textContent, 'updateApplying');
+  }, { update:async () => { checks++; if (checks === 2) await new Promise((resolve) => { finishCheck = resolve; }); } });
+});
+
+test('設定の明示確認はオフライン・失敗を区別し、初回導入と自動切替を更新待ちと誤認しない', async () => {
+  let checks = 0;
+  await withUpdateScreen(async ({ manager, elements, registration, serviceWorker, reloads }) => {
+    await new Promise(setImmediate);
+    assert.equal(elements.get('settings-update-status').textContent, 'updateNotChecked');
+    assert.equal(elements.get('update-banner').hidden, true);
+    await manager.checkNow();
+    assert.equal(elements.get('settings-update-status').textContent, 'updateOffline');
+    assert.equal(checks, 0);
+    navigator.onLine = true;
+    await manager.checkNow();
+    assert.equal(elements.get('settings-update-status').textContent, 'updateCheckFailed');
+    assert.equal(checks, 1);
+    serviceWorker.controller = {};
+    serviceWorker.dispatchEvent(new Event('controllerchange'));
+    assert.equal(reloads(), 0, 'ブラウザ自身の切替を強制reloadしない');
+    assert.equal(elements.get('settings-update-status').textContent, 'updateCheckFailed');
+  }, { controlled:false, online:false, update:async () => { checks++; throw new Error('network'); } });
+});

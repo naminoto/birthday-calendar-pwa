@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, extname } from 'node:path';
+import { APP_VERSION } from '../src/version.js';
 
 const prefix = '/birthday-circle/', root = resolve('dist');
 const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
@@ -117,9 +118,25 @@ try {
   }))()`);
   check(english.hero === 'Keep meaningful days close.' && english.calendar === 'Birthday & anniversary calendar'
     && english.backup === 'Backup & restore' && english.form.startsWith('Display name')
-    && english.crop === 'Adjust image' && english.version === '1.2.1' && english.category === 'Pet'
+    && english.crop === 'Adjust image' && english.version === APP_VERSION && english.category === 'Pet'
     && english.residualText.length === 0,
     `英語画面の翻訳が不足しています: ${JSON.stringify(english)}`);
+  const updateEnglish = await evaluate(`({version:document.querySelector('#app-version-label').textContent,
+    check:document.querySelector('#settings-check-update').textContent})`);
+  check(updateEnglish.version === 'App version' && /^Check/.test(updateEnglish.check),
+    `設定のVersion・更新操作が英語になりません: ${JSON.stringify(updateEnglish)}`);
+  await evaluate('document.querySelector("#settings-check-update").click()');
+  await until(() => evaluate('document.querySelector("#settings-update-status").textContent.includes("No available update")'),
+    '設定からの明示更新確認');
+  const transferEnglish = await evaluate(`(() => {document.querySelector('[data-transfer-route=pc-phone]').click();
+    return {title:document.querySelector('#transfer-title').textContent,
+      steps:document.querySelector('#transfer-steps').textContent,
+      warning:document.querySelector('#transfer-replace').textContent,
+      selected:document.querySelector('[data-transfer-route=pc-phone]').getAttribute('aria-pressed')};})()`);
+  check(transferEnglish.title === 'Move data to another device'
+    && transferEnglish.steps.includes('source PC') && transferEnglish.steps.includes('destination phone')
+    && transferEnglish.warning.includes('replaced') && transferEnglish.selected === 'true',
+    `端末移行の英語案内が不正です: ${JSON.stringify(transferEnglish)}`);
   await evaluate(`(()=>{document.querySelector('#people-add').click();
     document.querySelector('#add-anniversary').click();document.querySelector('#add-link').click();
     document.querySelector('#person-name').value='Validation';
@@ -297,7 +314,7 @@ try {
     const original=URL.createObjectURL;
     URL.createObjectURL=function(blob){if(blob.type==='application/zip')window.__backup=blob;
       return original.call(URL,blob);};
-    document.querySelector('#export-backup').click();})()`);
+    document.querySelector('#transfer-export').click();})()`);
   await until(() => evaluate('window.__backup?.size > 0'), '画像を含むZIP書き出し');
   await evaluate(`(()=>{document.querySelector('[data-tab=calendar]').click();
     document.querySelector('#person-rail .avatar-person').click();
@@ -318,8 +335,19 @@ try {
     transfer.items.add(new File([window.__backup],'backup.zip',{type:'application/zip'}));
     input.files=transfer.files;input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
   await until(() => evaluate('!document.querySelector("#restore-preview").hidden'), 'ZIP内容プレビュー');
+  check(await evaluate(`document.querySelector('#restore-preview').textContent.includes('完全に置き換え')
+    && document.querySelector('#restore-preview').textContent.includes('この端末に1人')`),
+    '復元プレビューに完全置換と現在件数が示されません。');
+  await evaluate(`(()=>{window.confirm=()=>false;
+    document.querySelector('#restore-preview .primary').click();})()`);
+  check(await evaluate('document.querySelector(".person-card")?.textContent.includes("変更された名前")'),
+    '復元キャンセルで移行先データが変わりました。');
+  await evaluate(`(()=>{let chosen=0;const input=document.querySelector('#import-backup');
+    const original=input.click.bind(input);input.click=()=>{chosen++;};
+    document.querySelector('#transfer-import').click();window.__transferChoose=chosen;input.click=original;})()`);
+  check(await evaluate('window.__transferChoose === 1'), '端末移行の受取ボタンが既存のファイル選択を使いません。');
   await evaluate(`(()=>{window.confirm=()=>true;window.prompt=()=> '復元';
-    document.querySelector('#restore-preview button').click();})()`);
+    document.querySelector('#restore-preview .primary').click();})()`);
   await until(() => evaluate('document.querySelector("#toast").textContent.includes("復元と画像整合性")'), 'ZIP復元');
   const restoredName = await evaluate(`new Promise(resolve=>{const r=indexedDB.open('birthday-circle-local');
     r.onsuccess=()=>{const q=r.result.transaction('people').objectStore('people').getAll();
@@ -362,6 +390,10 @@ try {
   await evaluate('document.querySelector("#update-later").click()');
   check(await evaluate('document.querySelector("#update-banner").hidden && !!document.querySelector("#person-rail .avatar-person")'),
     'あとでを選択した後に通常利用できません。');
+  await evaluate('document.querySelector("[data-tab=settings]").click()');
+  check(await evaluate(`!document.querySelector("#settings-apply-update").hidden
+    && document.querySelector("#settings-update-status").textContent.includes("update")`),
+    '延期後の設定画面に待機中更新が表示されません。');
   await evaluate(`(()=>{window.dispatchEvent(new Event('pagehide'));
     window.dispatchEvent(new Event('pageshow'));})()`);
   check(await evaluate('!document.querySelector("#update-banner").hidden'),
@@ -380,8 +412,9 @@ try {
   await command('Page.reload');
   await until(() => evaluate('!document.querySelector("#update-banner").hidden && document.documentElement.lang === "en"'), '更新案内の再表示');
   const beforeUpdateNavigations = navigations;
-  const updatingLabel = await evaluate(`(()=>{document.querySelector('#update-app').click();
-    return document.querySelector('#update-message').textContent;})()`);
+  const updatingLabel = await evaluate(`(()=>{document.querySelector('[data-tab=settings]').click();
+    document.querySelector('#settings-apply-update').click();
+    return document.querySelector('#settings-update-status').textContent;})()`);
   check(updatingLabel.includes('Updating'), '更新中の表示がありません。');
   await until(() => navigations > beforeUpdateNavigations, '更新後reload');
   await until(() => evaluate('Boolean(navigator.serviceWorker.controller) && document.querySelector("#person-rail .avatar-person") !== null'), '更新後再起動');
@@ -413,6 +446,10 @@ try {
   await command('Network.emulateNetworkConditions', { offline: true, latency: 0, downloadThroughput: 0, uploadThroughput: 0 });
   await command('Page.reload');
   await until(() => evaluate('document.querySelector("#person-rail .avatar-person") !== null'), 'オフライン起動');
+  await evaluate('document.querySelector("[data-tab=settings]").click()');
+  await evaluate('document.querySelector("#settings-check-update").click()');
+  check(await evaluate('document.querySelector("#settings-update-status").textContent.includes("offline")'),
+    '設定のオフライン更新確認が区別されません。');
   check(errors.length === 0, `ブラウザエラー: ${errors.join(' | ')}`);
   const externalRequests = requests.filter(url => !url.startsWith(baseUrl)
     && !url.startsWith('blob:') && !url.startsWith('data:'));

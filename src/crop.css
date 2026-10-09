@@ -21,6 +21,22 @@ input::file-selector-button { font: inherit; }
 .update-actions { display:flex; gap:8px; flex-shrink:0; }
 .update-actions button { min-height:44px; border:1px solid var(--brand); border-radius:9px; padding:8px 12px; background:white; color:var(--brand); font:inherit; font-weight:700; }
 .update-actions #update-app { background:var(--brand); color:white; }
+.settings-update { margin-top:18px; padding-top:14px; border-top:1px solid var(--line); }
+.settings-update h3 { margin:0 0 6px; font-size:1rem; }
+.settings-update p { margin:6px 0 10px; }
+.settings-update .actions { display:flex; flex-wrap:wrap; gap:8px; }
+.settings-update button { min-height:44px; }
+.settings-update [hidden] { display:none; }
+.transfer-guide { margin-top:20px; padding-top:18px; border-top:1px solid var(--line); }
+.transfer-guide h3 { margin:0 0 8px; font-size:1.08rem; }
+.transfer-guide p { line-height:1.55; }
+.transfer-warning { padding:10px 12px; border-radius:10px; background:#fff8df; color:var(--ink); }
+.transfer-routes { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin:14px 0; }
+.transfer-routes button { min-height:48px; padding:8px; border:1px solid var(--line); border-radius:10px; background:white; color:var(--ink); font:inherit; text-align:left; }
+.transfer-routes button[aria-pressed="true"] { border-color:var(--brand); background:#f0eeff; font-weight:700; }
+.transfer-steps { margin:0 0 14px; padding-left:1.5rem; line-height:1.6; }
+.transfer-steps li { padding:3px 0; }
+.transfer-guide .actions button { min-height:44px; }
 .calendar-category-filter { display:flex; align-items:center; gap:10px; margin:12px 0 4px; color:var(--muted); font-size:.9rem; font-weight:700; }
 .calendar-category-filter select, .language-picker select { min-height:44px; min-width:160px; border:1px solid var(--line); border-radius:9px; padding:7px 10px; background:white; color:var(--ink); }
 .language-picker select { width:100%; }
@@ -28,6 +44,8 @@ input::file-selector-button { font: inherit; }
   .update-banner { flex-direction:column; align-items:stretch; }
   .update-actions { justify-content:flex-end; }
   .calendar-category-filter select { flex:1; min-width:0; }
+  .transfer-routes { grid-template-columns:1fr; }
+  .transfer-guide .actions button { width:100%; }
 }
 
 .calendar-filters { display:flex; flex-wrap:wrap; gap:8px 16px; }

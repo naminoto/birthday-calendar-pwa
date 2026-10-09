@@ -17,7 +17,7 @@ const $ = (id) => document.getElementById(id);
 let avatarEditor, updates;
 const state = { db: null, people: [], images: new Map(), notices: [], settings: null,
   today: tokyoToday(), month: null, selectedPersonId: null, detailPersonId: null,
-  railFilter: 'all', preparedBackup: null };
+  railFilter: 'all', transferRoute: 'phone-pc', preparedBackup: null };
 const [todayYear, todayMonth] = state.today.split('-').map(Number);
 state.month = new Date(Date.UTC(todayYear, todayMonth - 1, 1));
 
@@ -352,9 +352,19 @@ function renderNotifications() {
     wrap.append(button); list.append(wrap);
   }
 }
+function renderTransferGuide() {
+  const [source, destination] = state.transferRoute.split('-').map((device) => t(device === 'phone' ? 'devicePhone' : 'devicePc'));
+  const steps = [t('transferStepExport', { source }), t('transferStepSend', { destination }),
+    t('transferStepOpen', { destination }), t('transferStepBackup'),
+    t('transferStepImport'), t('transferStepConfirm')];
+  $('transfer-steps').replaceChildren(...steps.map((step) => el('li', '', step)));
+  for (const button of document.querySelectorAll('[data-transfer-route]'))
+    button.setAttribute('aria-pressed', String(button.dataset.transferRoute === state.transferRoute));
+}
 function renderSettings() {
   const form = $('notification-settings');
   for (const [key, value] of Object.entries(state.settings ?? {})) if (form.elements[key]) form.elements[key].checked = value;
+  renderTransferGuide();
 }
 function formatBytes(bytes) { return bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024
   ? `${(bytes / 1024).toFixed(1)} KiB` : `${(bytes / (1024 * 1024)).toFixed(1)} MiB`; }
@@ -384,11 +394,17 @@ async function previewRestore(file) {
   const host = $('restore-preview'); host.hidden = true; state.preparedBackup = null;
   try {
     const prepared = await inspectBackup(file); state.preparedBackup = prepared;
+    const current = await storageSummary(state.db);
     host.replaceChildren(el('p', '', t('backupDate', { date:prepared.manifest.createdAt, version:prepared.manifest.formatVersion })),
       el('p', '', t('backupCounts', { people:prepared.summary.people, images:prepared.summary.images, notices:prepared.summary.notifications })),
+      el('p', '', t('restoreReplaceCounts', { currentPeople:current.people, currentImages:current.images,
+        incomingPeople:prepared.summary.people, incomingImages:prepared.summary.images })),
       el('p', '', t('restoreWarning')));
+    const backupButton = el('button', 'quiet', t('backupCurrent')); backupButton.type = 'button';
+    backupButton.onclick = exportBackup;
     const confirmButton = el('button', 'primary', t('restoreButton')); confirmButton.type = 'button';
     confirmButton.onclick = async () => {
+      if (state.preparedBackup !== prepared) return;
       if (!confirm(t('restoreConfirm'))) return;
       if (prompt(t('restorePrompt')) !== t('restoreWord')) return;
       try { await restoreBackup(state.db, prepared); state.preparedBackup = null; host.hidden = true;
@@ -397,7 +413,8 @@ async function previewRestore(file) {
         await renderStorageStats(); updates?.refreshLanguage(); toast(t('restoreDone')); }
       catch (error) { toast(errorText(error)); }
     };
-    host.append(confirmButton); host.hidden = false;
+    const actions = el('div', 'actions'); actions.append(backupButton, confirmButton);
+    host.append(actions); host.hidden = false;
   } catch (error) { toast(t('restoreFailed', { message:errorText(error) })); }
 }
 
@@ -426,7 +443,9 @@ function bindEvents() {
       renderHome(); renderCalendar(); renderPeople(); renderBirthdays(); renderNotifications(); renderSettings();
       if ($('detail-dialog').open && state.detailPersonId) openDetail(state.detailPersonId);
       state.preparedBackup = null; $('restore-preview').hidden = true;
-      updates?.refreshLanguage(); await renderStorageStats();
+      updates?.refreshLanguage();
+      if (!updates) $('settings-update-status').textContent = t('updateUnavailable');
+      await renderStorageStats();
     } catch (error) { toast(errorText(error)); }
   };
   window.addEventListener('hashchange', () => switchTab(location.hash.slice(1)));
@@ -468,6 +487,10 @@ function bindEvents() {
     await saveSettings(state.db, Object.fromEntries(['enabled', 'seven', 'three', 'one', 'today']
       .map((key) => [key, fields[key].checked]))); await refresh(); toast(t('settingsSaved')); };
   $('export-backup').onclick = exportBackup;
+  $('transfer-export').onclick = exportBackup;
+  $('transfer-import').onclick = () => $('import-backup').click();
+  for (const button of document.querySelectorAll('[data-transfer-route]')) button.onclick = () => {
+    state.transferRoute = button.dataset.transferRoute; renderTransferGuide(); };
   $('import-backup').onchange = (event) => { const file = event.target.files[0]; if (file) previewRestore(file);
     event.target.value = ''; };
   $('clear-cache').onclick = async () => { try { const removed = await clearOldShellCaches();
@@ -483,6 +506,8 @@ async function boot() {
     switchTab(location.hash.slice(1) || 'home');
     if (import.meta.env.PROD) updates = await setupUpdates({ t, errorText,
       confirmUpdate: () => !document.querySelector('dialog[open]') || confirm(t('updateUnsaved')) });
+    if (!updates) { $('settings-update-status').textContent = t('updateUnavailable');
+      $('settings-check-update').disabled = true; }
   } catch (error) {
     document.querySelector('main').replaceChildren(el('div', 'empty',
       t('dbFailed', { message:errorText(error) })));

@@ -99,3 +99,16 @@ test('カテゴリと予定種類を併用してカレンダーを絞る', () =>
     .get('2027-05-10').length, 1);
   assert.equal(calendarEvents([pet, friend], 2027, 6).size, 0);
 });
+
+test('カレンダーは同じ人物の複数予定も省略せずイベント単位で保持する', () => {
+  const a = normalizePerson({ displayName:'同日3予定', category:'PET', anniversaries:[birthday(5, 10),
+    { type:'CUSTOM', title:'お迎え日', month:5, day:10 },
+    { type:'CUSTOM', title:'もう一つ', month:5, day:10 }] });
+  const b = normalizePerson({ displayName:'同日2予定', anniversaries:[birthday(5, 10),
+    { type:'CUSTOM', title:'出会った日', month:5, day:10 }] });
+  const rows = calendarEvents([a, b], 2027, 5).get('2027-05-10');
+  assert.equal(rows.length, 5);
+  assert.equal(rows.filter((row) => row.person.id === a.id).length, 3);
+  assert.equal(rows.filter((row) => row.ann.type === 'BIRTHDAY').length, 2);
+  assert.equal(calendarEvents([a, b], 2027, 5, 'PET', 'ANNIVERSARY').get('2027-05-10').length, 2);
+});

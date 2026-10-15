@@ -33,7 +33,9 @@ function toast(message) { const node = $('toast'); node.textContent = message; n
 function avatar(person, large = false) {
   const node = el('span', `avatar${large ? ' large' : ''}`, person.displayName.slice(0, 1));
   const url = state.images.get(person.id);
-  if (url) { const img = el('img'); img.src = url; img.alt = ''; node.replaceChildren(img); }
+  if (url) { const img = el('img'); img.alt = '';
+    img.addEventListener('error', () => { node.textContent = person.displayName.slice(0, 1); }, { once:true });
+    img.src = url; node.replaceChildren(img); }
   return node;
 }
 function birthdayText(person) { const b = birthdayOf(person); return b ? t('dateDay', { month:b.month, day:b.day }) : t('birthdayUnregistered'); }
@@ -44,8 +46,8 @@ function anniversaryText(ann, date) { const years = anniversaryYears(ann, date);
   return `${eventTitle(ann)}${years ? ` · ${t('anniversaryYears', { years })}` : ''}`; }
 
 async function refresh() {
-  for (const url of state.images.values()) URL.revokeObjectURL(url);
   const [people, images] = await Promise.all([all(state.db, 'people'), all(state.db, 'images')]);
+  const previousImages = state.images;
   state.people = people;
   state.images = new Map(images.map((image) => [image.personId, URL.createObjectURL(image.blob)]));
   const notifications = await synchronizeNotifications(state.db, state.today);
@@ -53,6 +55,8 @@ async function refresh() {
   $('unread-badge').textContent = notifications.unread;
   $('unread-badge').hidden = notifications.unread === 0;
   renderHome(); renderCalendar(); renderPeople(); renderBirthdays(); renderNotifications(); renderSettings();
+  // 古い画像が画面に残ったまま失効しないよう、DOMを差し替えてから解放する。
+  for (const url of previousImages.values()) URL.revokeObjectURL(url);
 }
 
 function switchTab(tab) {
@@ -139,17 +143,33 @@ function renderCalendar() {
   for (let day = 1; day <= last; day++) {
     const date = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     const events = byDay.get(date) ?? [];
-    const cell = el('button', `day-cell${date === state.today ? ' today' : ''}`); cell.type = 'button';
+    // 日付と人物をそれぞれボタンにし、buttonの入れ子を避ける。
+    const cell = el('div', `day-cell${date === state.today ? ' today' : ''}`);
     cell.setAttribute('role', 'gridcell'); cell.setAttribute('aria-label', t('dayAria', { month, day, count:events.length }));
-    cell.append(el('span', 'day-number', day)); const pics = el('span', 'day-avatars');
+    const dayButton = el('button', 'day-number day-open', day); dayButton.type = 'button';
+    dayButton.setAttribute('aria-label', t('dayAria', { month, day, count:events.length }));
+    cell.append(dayButton); const pics = el('div', 'day-avatars');
     for (const entry of events.slice(0, 3)) {
-      const item = el('span', `calendar-event ${entry.ann.type === 'BIRTHDAY' ? 'birthday-event' : 'anniversary-event'}`);
-      item.append(el('span', 'event-mark', entry.ann.type === 'BIRTHDAY' ? '🎂' : '◇'),
-        el('span', 'event-name', entry.ann.type === 'BIRTHDAY' ? entry.person.displayName
-          : `${entry.person.displayName} · ${anniversaryText(entry.ann, date)}`));
+      const birthday = entry.ann.type === 'BIRTHDAY';
+      const item = el('button', `calendar-event ${birthday ? 'birthday-event' : 'anniversary-event'}`);
+      item.type = 'button'; item.dataset.personId = entry.person.id;
+      const label = t('calendarEventDetail', { name:entry.person.displayName,
+        event:birthday ? t('birthday') : anniversaryText(entry.ann, date) });
+      item.title = label; item.setAttribute('aria-label', label);
+      const icon = el('span', 'event-avatar');
+      const mark = el('span', 'event-mark', birthday ? '🎂' : '🎉'); mark.setAttribute('aria-hidden', 'true');
+      icon.append(avatar(entry.person), mark);
+      item.append(icon, el('span', 'event-name', birthday ? entry.person.displayName
+        : `${entry.person.displayName} · ${anniversaryText(entry.ann, date)}`));
+      item.addEventListener('click', (event) => { event.stopPropagation(); openDetail(entry.person.id); });
       pics.append(item);
     }
-    if (events.length > 3) pics.append(el('span', 'more', `+${events.length - 3}`));
+    if (events.length > 3) {
+      const more = el('button', 'more', `+${events.length - 3}`); more.type = 'button';
+      more.setAttribute('aria-label', t('calendarMoreEvents', { count:events.length - 3 }));
+      more.addEventListener('click', (event) => { event.stopPropagation(); openDayPeople(events, month, day); });
+      pics.append(more);
+    }
     cell.append(pics);
     cell.addEventListener('click', () => { if (state.selectedPersonId) assignBirthday(state.selectedPersonId, month, day);
       else if (events.length === 1) openDetail(events[0].person.id);

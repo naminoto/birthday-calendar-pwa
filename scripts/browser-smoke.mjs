@@ -27,7 +27,7 @@ await new Promise((done) => server.listen(0, '127.0.0.1', done));
 const baseUrl = `http://127.0.0.1:${server.address().port}${prefix}`;
 const profile = mkdtempSync(join(tmpdir(), 'birthday-local-smoke-'));
 const edge = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
-const errors = [], requests = [], pending = new Map(); let sequence = 0, socket, child, navigations = 0;
+const errors = [], imageFailures = [], requests = [], pending = new Map(); let sequence = 0, socket, child, navigations = 0;
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 async function until(check, label) { for (let i = 0; i < 100; i++) { try { if (await check()) return; } catch {}
   await sleep(150); } throw new Error(`${label}を待機できませんでした。`); }
@@ -55,10 +55,19 @@ try {
     if (message.id && pending.has(message.id)) { const task = pending.get(message.id); pending.delete(message.id);
       if (message.error) task.fail(new Error(message.error.message)); else task.done(message.result); }
     if (message.method === 'Runtime.exceptionThrown') errors.push(message.params.exceptionDetails.text);
-    if (message.method === 'Log.entryAdded' && message.params.entry.level === 'error') errors.push(message.params.entry.text);
-    if (message.method === 'Network.requestWillBeSent') requests.push(message.params.request.url);
+    if (message.method === 'Log.entryAdded' && message.params.entry.level === 'error') {
+      errors.push(`${message.params.entry.text} (${message.params.entry.url || 'unknown resource'})`);
+    }
+    if (message.method === 'Runtime.bindingCalled' && message.params.name === '__reportImageFailure') imageFailures.push(message.params.payload);
+    if (message.method === 'Network.requestWillBeSent') {
+      requests.push(message.params.request.url);
+    }
   });
   for (const method of ['Page.enable', 'Runtime.enable', 'Log.enable', 'Network.enable']) await command(method);
+  await command('Runtime.addBinding', { name:'__reportImageFailure' });
+  await command('Page.addScriptToEvaluateOnNewDocument', { source:`window.addEventListener('error',event=>{
+    if(event.target instanceof HTMLImageElement)window.__reportImageFailure(JSON.stringify({src:event.target.src,
+      parent:event.target.parentElement?.className,context:event.target.closest('[id]')?.id,connected:event.target.isConnected}));},true);` });
   await command('Page.navigate', { url: baseUrl });
   await until(() => evaluate('document.querySelector("#summary-grid")?.children.length === 4'), '初期ホーム');
   await until(() => evaluate('Boolean(navigator.serviceWorker.controller)'), '初回Service Worker制御');
@@ -254,10 +263,36 @@ try {
     r.onerror=()=>reject(r.error);})`);
   check(image.count === 1 && image.width === 512 && image.height === 512 && image.bytes <= 2 * 1024 * 1024,
     'トリミング画像が512px正方形で保存されていません。');
+  const calendarAvatars = await evaluate(`(async()=>{document.querySelector('[data-tab=calendar]').click();
+    const cell=[...document.querySelectorAll('.day-cell')].find(node=>node.querySelector('.day-number').textContent==='15');
+    const images=[...cell.querySelectorAll('.calendar-event img')];await Promise.all(images.map(img=>img.decode()));
+    window.__calendarOriginalUrl=images[0].src;window.__calendarRevoked=[];window.__calendarStaleRevokes=[];
+    const revoke=URL.revokeObjectURL;window.__restoreCalendarRevoke=()=>{URL.revokeObjectURL=revoke;};
+    URL.revokeObjectURL=function(url){window.__calendarRevoked.push(url);
+      if([...document.querySelectorAll('main img,#notification-list img')].some(img=>img.src===url))window.__calendarStaleRevokes.push(url);
+      return revoke.call(URL,url);};
+    const first=images[0],fallback=first.parentElement;first.dispatchEvent(new Event('error'));
+    const fallbackWorks=!fallback.querySelector('img') && fallback.textContent==='ブ';
+    document.querySelector('#month-next').click();document.querySelector('#month-prev').click();
+    const events=[...document.querySelectorAll('.calendar-event')];
+    return {images:images.length,shared:images.every(img=>img.src===document.querySelector('#person-rail img').src),
+      marks:events.map(node=>node.querySelector('.event-mark').textContent),fallbackWorks,
+      nested:document.querySelectorAll('button button').length};})()`);
+  check(calendarAvatars.images === 2 && calendarAvatars.shared && calendarAvatars.fallbackWorks
+    && calendarAvatars.marks.includes('🎂') && calendarAvatars.marks.includes('🎉') && calendarAvatars.nested === 0,
+    `カレンダー画像・共有URL・種別・代替表示に問題: ${JSON.stringify(calendarAvatars)}`);
+  await evaluate('document.querySelector(".calendar-event").click()');
+  check(await evaluate('document.querySelector("#detail-dialog").open && document.querySelector(".detail-top h3").textContent === "ブラウザ検証"'),
+    '人物アイコンから既存の人物詳細を直接開けません。');
+  await evaluate('document.querySelector("#detail-dialog [data-close]").click()');
   await evaluate(`(()=>{document.querySelector('[data-tab=people]').click();document.querySelector('#people-add').click();
     document.querySelector('#person-name').value='別カテゴリ';document.querySelector('#person-category').value='PET';
     document.querySelector('#person-birth-month').value='${persisted[0].birthday.month}';
-    document.querySelector('#person-birth-day').value='15';document.querySelector('#person-form').requestSubmit();})()`);
+    document.querySelector('#person-birth-day').value='15';
+    for(const title of ['お迎え日','もう一つの記念日']){document.querySelector('#add-anniversary').click();
+      const row=document.querySelector('#anniversary-fields .repeat-row:last-child');row.querySelector('.ann-title').value=title;
+      row.querySelector('.ann-month').value='${persisted[0].birthday.month}';row.querySelector('.ann-day').value='15';}
+    document.querySelector('#person-form').requestSubmit();})()`);
   await until(() => evaluate('document.querySelectorAll("#people-list .person-card").length === 2'), '同日2人の登録');
   const calendarFilter = await evaluate(`(()=>{document.querySelector('[data-tab=calendar]').click();
     const selector=document.querySelector('#calendar-category');
@@ -271,10 +306,69 @@ try {
     type.value='ALL';type.dispatchEvent(new Event('change',{bubbles:true}));
     selector.value='ALL';selector.dispatchEvent(new Event('change',{bubbles:true}));
     return {all,pet,other,otherAnn,otherBirthday,reset:count(),scroll:document.documentElement.scrollWidth};})()`);
-  check(calendarFilter.all === 3 && calendarFilter.pet === 1 && calendarFilter.other === 2
+  check(calendarFilter.all === 3 && calendarFilter.pet === 3 && calendarFilter.other === 2
     && calendarFilter.otherAnn === 1 && calendarFilter.otherBirthday === 1
     && calendarFilter.reset === 3 && calendarFilter.scroll <= 390,
     `カレンダーカテゴリ絞り込みか同日複数人表示に失敗: ${JSON.stringify(calendarFilter)}`);
+  const calendarOverflow = await evaluate(`(()=>{const cell=[...document.querySelectorAll('.day-cell')].find(node=>node.querySelector('.day-number').textContent==='15');
+    const more=cell.querySelector('.more');const hidden=more?.textContent;more.click();
+    const rows=[...document.querySelectorAll('#detail-body .item-row')];const titles=rows.map(node=>node.textContent);
+    rows[rows.length-1].click();const detail=!!document.querySelector('.detail-top h3');
+    document.querySelector('#detail-dialog [data-close]').click();cell.querySelector('.day-open').click();
+    const viaDay=document.querySelectorAll('#detail-body .item-row').length;
+    document.querySelector('#detail-dialog [data-close]').click();
+    const category=document.querySelector('#calendar-category');category.value='PET';category.dispatchEvent(new Event('change'));
+    const placeholder=[...document.querySelectorAll('.calendar-event .avatar')].every(node=>!node.querySelector('img') && node.textContent==='別');
+    category.value='ALL';category.dispatchEvent(new Event('change'));
+    return {hidden,total:rows.length,viaDay,detail,placeholder,titles};})()`);
+  check(calendarOverflow.hidden === '+2' && calendarOverflow.total === 5 && calendarOverflow.viaDay === 5
+    && calendarOverflow.detail && calendarOverflow.placeholder
+    && calendarOverflow.titles.some(title=>title.includes('お迎え日'))
+    && calendarOverflow.titles.some(title=>title.includes('もう一つの記念日')),
+    `省略された同日予定・プレースホルダーに問題: ${JSON.stringify(calendarOverflow)}`);
+  await evaluate(`(()=>{document.querySelector('[data-tab=settings]').click();const select=document.querySelector('#language-choice');
+    select.value='en';select.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await until(() => evaluate('document.documentElement.lang === "en"'), 'アイコンラベル英語');
+  check(await evaluate(`[...document.querySelectorAll('.calendar-event')].every(node=>node.getAttribute('aria-label').startsWith('Open '))
+    && document.querySelector('.day-cell .more').getAttribute('aria-label').includes('2 hidden events')`), 'カレンダー操作の英語ラベルが不正です。');
+  await evaluate(`(()=>{const select=document.querySelector('#language-choice');select.value='ja';
+    select.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await until(() => evaluate('document.documentElement.lang === "ja"'), 'アイコンラベル日本語');
+  const calendarReuse = await evaluate(`(()=>{document.querySelector('[data-tab=calendar]').click();
+    let created=0,reads=0;const create=URL.createObjectURL,getAll=IDBObjectStore.prototype.getAll;
+    URL.createObjectURL=function(blob){created++;return create.call(URL,blob);};
+    IDBObjectStore.prototype.getAll=function(...args){if(this.name==='images')reads++;return getAll.apply(this,args);};
+    const category=document.querySelector('#calendar-category');category.value='OTHER';category.dispatchEvent(new Event('change'));
+    const before=document.querySelector('.calendar-event img').src;
+    for(let i=0;i<6;i++){document.querySelector('#month-next').click();document.querySelector('#month-prev').click();
+      document.querySelector('[data-tab=home]').click();document.querySelector('[data-tab=calendar]').click();}
+    const after=document.querySelector('.calendar-event img').src;
+    const stable=before===after;category.value='ALL';category.dispatchEvent(new Event('change'));
+    URL.createObjectURL=create;IDBObjectStore.prototype.getAll=getAll;return {created,reads,stable};})()`);
+  check(calendarReuse.created === 0 && calendarReuse.reads === 0 && calendarReuse.stable,
+    `月移動で画像を再取得しています: ${JSON.stringify(calendarReuse)}`);
+  const calendarGeometry = await evaluate(`(()=>{const grid=document.querySelector('#calendar-grid');
+    const cells=[...grid.querySelectorAll('.day-cell')];const buttons=[...grid.querySelectorAll('.calendar-event')];
+    const inside=buttons.every(button=>{const b=button.getBoundingClientRect(),c=button.closest('.day-cell').getBoundingClientRect();
+      return b.left>=c.left && b.right<=c.right && b.top>=c.top && b.bottom<=c.bottom && b.height>=40;});
+    const separate=cells.every(cell=>{const nodes=[...cell.querySelectorAll('.day-open,.calendar-event,.more')];
+      return nodes.every((node,i)=>i===0 || node.getBoundingClientRect().top>=nodes[i-1].getBoundingClientRect().bottom);});
+    const square=buttons.every(button=>{const box=button.querySelector('.avatar').getBoundingClientRect();return box.width>=28 && Math.abs(box.width-box.height)<1;});
+    return {columns:getComputedStyle(grid).gridTemplateColumns.split(' ').length,inside,separate,square,
+      scroll:document.documentElement.scrollWidth};})()`);
+  check(calendarGeometry.columns === 7 && calendarGeometry.inside && calendarGeometry.separate
+    && calendarGeometry.square && calendarGeometry.scroll <= 390,
+    `スマホのアイコン配置に問題: ${JSON.stringify(calendarGeometry)}`);
+  const touchPoint = await evaluate(`(()=>{const button=document.querySelector('.calendar-event');button.scrollIntoView({block:'center'});
+    const rect=button.getBoundingClientRect();return {x:rect.left+rect.width/2,y:rect.top+rect.height/2};})()`);
+  await command('Emulation.setTouchEmulationEnabled', { enabled:true });
+  await command('Input.dispatchTouchEvent', { type:'touchStart', touchPoints:[touchPoint] });
+  await command('Input.dispatchTouchEvent', { type:'touchEnd', touchPoints:[] });
+  await until(() => evaluate('document.querySelector("#detail-dialog").open && !!document.querySelector(".detail-top h3")'), 'アイコン実タップの人物詳細');
+  await evaluate('document.querySelector("#detail-dialog [data-close]").click();window.scrollTo(0,0)');
+  await command('Emulation.setTouchEmulationEnabled', { enabled:false });
+  mkdirSync('test-artifacts', { recursive:true });
+  writeFileSync('test-artifacts/calendar-icons-busy-390.png', Buffer.from((await command('Page.captureScreenshot', { format:'png' })).data, 'base64'));
   await evaluate(`(()=>{window.confirm=()=>true;document.querySelector('[data-tab=people]').click();
     [...document.querySelectorAll('#people-list .person-card')].find(x=>x.textContent.includes('別カテゴリ')).click();
     document.querySelector('#detail-edit').click();document.querySelector('#delete-person').click();})()`);
@@ -310,6 +404,15 @@ try {
         resolve({count:q.result.length,width:bitmap.width,height:bitmap.height});};};})`);
   check(replacement.count === 1 && replacement.width === 512 && replacement.height === 512,
     '画像差し替えで旧画像が残ったか、新画像の縮小に失敗しました。');
+  const calendarReplacement = await evaluate(`(async()=>{document.querySelector('[data-tab=calendar]').click();
+    const img=document.querySelector('.calendar-event img');await img.decode();
+    const canvas=document.createElement('canvas');canvas.width=1;canvas.height=1;const ctx=canvas.getContext('2d');ctx.drawImage(img,0,0,1,1);
+    return {changed:img.src!==window.__calendarOriginalUrl,oldRevoked:window.__calendarRevoked.includes(window.__calendarOriginalUrl),
+      staleRevokes:window.__calendarStaleRevokes.length,
+      pixel:[...ctx.getImageData(0,0,1,1).data]};})()`);
+  check(calendarReplacement.changed && calendarReplacement.oldRevoked && calendarReplacement.staleRevokes === 0
+    && calendarReplacement.pixel[2] > calendarReplacement.pixel[0],
+    `画像変更がカレンダーに反映されません: ${JSON.stringify(calendarReplacement)}`);
   await evaluate(`(()=>{document.querySelector('[data-tab=settings]').click();
     const original=URL.createObjectURL;
     URL.createObjectURL=function(blob){if(blob.type==='application/zip')window.__backup=blob;
@@ -325,6 +428,10 @@ try {
     r.onsuccess=()=>{const q=r.result.transaction('images').objectStore('images').getAll();
       q.onsuccess=()=>resolve(q.result.length);};})`);
   check(imagesAfterDelete === 0, '画像削除後に孤児画像が残っています。');
+  check(await evaluate('document.querySelectorAll(".calendar-event img").length === 0 && [...document.querySelectorAll(".calendar-event .avatar")].every(node=>node.textContent === "ブ")'),
+    '画像削除後のカレンダーがプレースホルダーへ戻りません。');
+  check(await evaluate('window.__calendarStaleRevokes.length === 0'), '画面の参照中に画像URLを失効させています。');
+  await evaluate('window.__restoreCalendarRevoke()');
   await evaluate(`(()=>{document.querySelector('[data-tab=people]').click();
     document.querySelector('.person-card').click();document.querySelector('#detail-edit').click();
     document.querySelector('#person-name').value='変更された名前';
@@ -361,7 +468,10 @@ try {
   await until(() => evaluate('Boolean(navigator.serviceWorker.controller)'), 'Service Worker制御');
   await command('Emulation.clearDeviceMetricsOverride');
   await sleep(200);
-  const pc = await evaluate('({width:innerWidth,scroll:document.documentElement.scrollWidth,sw:!!navigator.serviceWorker.controller})');
+  const pc = await evaluate(`({width:innerWidth,scroll:document.documentElement.scrollWidth,sw:!!navigator.serviceWorker.controller,
+    avatar:document.querySelector('.calendar-event .avatar').getBoundingClientRect().width,
+    names:getComputedStyle(document.querySelector('.calendar-event .event-name')).display!=='none'})`);
+  check(pc.avatar === 32 && pc.names, 'PCのアイコンサイズか人物名表示が不正です。');
   mkdirSync('test-artifacts', { recursive: true });
   writeFileSync('test-artifacts/pc.png', Buffer.from((await command('Page.captureScreenshot', { format: 'png' })).data, 'base64'));
   await command('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
@@ -446,11 +556,14 @@ try {
   await command('Network.emulateNetworkConditions', { offline: true, latency: 0, downloadThroughput: 0, uploadThroughput: 0 });
   await command('Page.reload');
   await until(() => evaluate('document.querySelector("#person-rail .avatar-person") !== null'), 'オフライン起動');
+  check(await evaluate(`(async()=>{const images=[...document.querySelectorAll('.calendar-event img')];
+    await Promise.all(images.map(img=>img.decode()));return images.length===2 && images.every(img=>img.naturalWidth===512);})()`),
+    'オフラインでカレンダーのプロフィール画像を表示できません。');
   await evaluate('document.querySelector("[data-tab=settings]").click()');
   await evaluate('document.querySelector("#settings-check-update").click()');
   check(await evaluate('document.querySelector("#settings-update-status").textContent.includes("offline")'),
     '設定のオフライン更新確認が区別されません。');
-  check(errors.length === 0, `ブラウザエラー: ${errors.join(' | ')}`);
+  check(errors.length === 0, `ブラウザエラー: ${errors.join(' | ')} ${imageFailures.join(' | ')}`);
   const externalRequests = requests.filter(url => !url.startsWith(baseUrl)
     && !url.startsWith('blob:') && !url.startsWith('data:'));
   check(externalRequests.length === 0, `外部通信がありました: ${JSON.stringify(externalRequests)}`);
@@ -458,6 +571,7 @@ try {
     notifications: 1, formSizes, cropMobile, cropPreview, cropGesture, image, replacement, imagesAfterDelete,
     restoredName, restoredImages, offline: true, pc, mobile, calendarFilter,
     mobileViews, distribution, orientation, english, peopleAfterUpdate, imagesAfterUpdate, cachesAfterUpdate,
+    calendarAvatars,calendarOverflow,calendarReuse,calendarReplacement,calendarGeometry,
     waitingCache, settingsAfterUpdate, updateReloads,
     consoleErrors: errors.length, externalRequests: externalRequests.length }));
 } finally {

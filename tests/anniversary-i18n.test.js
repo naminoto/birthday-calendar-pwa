@@ -41,11 +41,11 @@ test('日付からの人物登録と空の予定一覧を日本語・英語で�
   globalThis.document = { documentElement:{ lang:'ja' } };
   try {
     setLanguage('ja');
-    assert.equal(t('addOnDate'), 'この日に登録');
+    assert.equal(t('addOnDate'), 'この日に新しい人物を登録');
     assert.equal(t('emptyDay'), 'この日の予定はありません');
     assert.equal(t('assignBirthdayOnDate', { name:'太郎' }), 'この日を太郎の誕生日にする');
     setLanguage('en');
-    assert.equal(t('addOnDate'), 'Add on this date');
+    assert.equal(t('addOnDate'), 'Add a new person on this date');
     assert.equal(t('emptyDay'), 'No events on this date');
     assert.equal(t('assignBirthdayOnDate', { name:'太郎' }), 'Set this date as 太郎’s birthday');
   } finally { setLanguage('ja'); globalThis.document = previous; }

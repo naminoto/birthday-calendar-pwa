@@ -79,7 +79,7 @@ export async function verifyCalendarRegistration({ evaluate, until, check }) {
   await until(() => evaluate('document.documentElement.lang === "en"'), '日付登録の英語');
   await evaluate(`(()=>{document.querySelector('[data-tab=calendar]').click();
     document.querySelector('[data-date="2029-01-02"] .day-open').click();})()`);
-  check(await evaluate('document.querySelector("#detail-body").textContent === "No events on this date" && document.querySelector("#day-add").textContent === "Add on this date" && document.querySelector("#detail-dialog h2").textContent === "Events on 1/2"'), '日付一覧の英語表示が不正です。');
+  check(await evaluate('document.querySelector("#detail-body").textContent === "No events on this date" && document.querySelector("#day-add").textContent === "Add a new person on this date" && document.querySelector("#detail-dialog h2").textContent === "Events on 1/2"'), '日付一覧の英語表示が不正です。');
   await evaluate('document.querySelector("#day-add").click()'); await closeForm();
   await evaluate(`(()=>{document.querySelector('[data-tab=settings]').click();const select=document.querySelector('#language-choice');
     select.value='ja';select.dispatchEvent(new Event('change'));})()`);

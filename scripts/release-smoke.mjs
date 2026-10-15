@@ -5,6 +5,7 @@ import { join, resolve, extname, sep } from 'node:path';
 import { tmpdir } from 'node:os';
 import { APP_VERSION } from '../src/version.js';
 import { verifyCalendarRegistration } from './calendar-registration-smoke.mjs';
+import { verifyCalendarInteractions } from './calendar-interaction-smoke.mjs';
 
 // 公開版の確認、または旧配布物→現在のdistの更新確認。実データには触れない。
 const option = (name) => process.argv.find((arg) => arg.startsWith(`--${name}=`))?.slice(name.length + 3);
@@ -80,6 +81,11 @@ try {
     registrationFlow = await verifyCalendarRegistration({ evaluate, until, check });
   }
   let upgrade = null;
+  let interactionFlow = null;
+  if (publicUrl && option('check-interactions') === 'true') {
+    await command('Emulation.setDeviceMetricsOverride', { width:390, height:844, deviceScaleFactor:1, mobile:true });
+    interactionFlow = await verifyCalendarInteractions({ evaluate, until, check, command, sleep:pause });
+  }
   if (previousDist) {
     const previousVersion = await evaluate('document.querySelector("#app-version").textContent');
     const expectedPrevious = readFileSync(join(previousDist, 'sw.js'), 'utf8').match(/const APP_VERSION = '([^']+)'/)?.[1];
@@ -144,7 +150,7 @@ try {
   const externalRequests = requests.filter((url) => !url.startsWith(baseUrl) && !url.startsWith('blob:') && !url.startsWith('data:'));
   check(externalRequests.length === 0, `Unexpected requests: ${JSON.stringify(externalRequests)}`);
   check(errors.length === 0, `Browser errors: ${JSON.stringify(errors)}`);
-  console.log(JSON.stringify({ baseUrl, upgrade, published, registrationFlow, offlineAfterUpgrade:!!previousDist, consoleErrors:errors.length, externalRequests:externalRequests.length }));
+  console.log(JSON.stringify({ baseUrl, upgrade, published, registrationFlow, interactionFlow, offlineAfterUpgrade:!!previousDist, consoleErrors:errors.length, externalRequests:externalRequests.length }));
 } finally {
   socket?.close(); child?.kill(); server?.close();
   if (profile.startsWith(resolve(tmpdir()) + sep) && profile.includes('birthday-release-smoke-')) {

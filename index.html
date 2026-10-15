@@ -36,7 +36,7 @@
         <div class="page-heading"><div><p class="eyebrow">CALENDAR</p><h1>誕生日カレンダー</h1></div><button class="quiet" id="calendar-today" type="button">今月へ</button></div>
         <div class="calendar-layout">
           <aside class="panel people-rail"><div class="section-heading compact"><h2>人物</h2><span id="rail-count"></span></div><div class="segmented"><button type="button" data-rail-filter="all" class="active">全員</button><button type="button" data-rail-filter="unregistered">未登録</button></div><p class="help">PCはアイコンをドラッグ。スマホは人物を選んで日付をタップできます。</p><div class="avatar-grid" id="person-rail"></div></aside>
-          <div class="panel calendar-panel"><div class="calendar-toolbar"><button class="icon-button" id="month-prev" type="button" aria-label="前月">‹</button><h2 id="month-title"></h2><button class="icon-button" id="month-next" type="button" aria-label="次月">›</button></div><div class="calendar-filters"><label class="calendar-category-filter"><span id="calendar-category-label">カテゴリ</span><select id="calendar-category"><option value="ALL">すべて</option></select></label><label class="calendar-category-filter"><span id="calendar-event-type-label">予定種類</span><select id="calendar-event-type"><option value="ALL">すべて</option><option value="BIRTHDAY">誕生日</option><option value="ANNIVERSARY">記念日</option></select></label></div><p class="selection-hint" id="selection-hint">日付をタップすると、その日の人物を確認できます。</p><div class="calendar-grid" id="calendar-grid" role="grid" aria-label="月間カレンダー"></div></div>
+          <div class="panel calendar-panel"><div class="calendar-toolbar"><button class="icon-button" id="month-prev" type="button" aria-label="前月">‹</button><h2 id="month-title"></h2><button class="icon-button" id="month-next" type="button" aria-label="次月">›</button></div><div class="calendar-filters"><label class="calendar-category-filter"><span id="calendar-category-label">カテゴリ</span><select id="calendar-category"><option value="ALL">すべて</option></select></label><label class="calendar-category-filter"><span id="calendar-event-type-label">予定種類</span><select id="calendar-event-type"><option value="ALL">すべて</option><option value="BIRTHDAY">誕生日</option><option value="ANNIVERSARY">記念日</option></select></label></div><div class="selection-bar"><p class="selection-hint" id="selection-hint" role="status">日付をタップすると、その日の人物を確認できます。</p><button id="clear-selection" class="quiet" type="button" hidden>選択を解除</button></div><div class="calendar-grid" id="calendar-grid" role="grid" aria-label="月間カレンダー"></div></div>
         </div>
       </section>
 
@@ -75,6 +75,11 @@
     <label class="crop-zoom">拡大・縮小<input id="crop-zoom" type="range" min="1" max="4" step="0.01" value="1"></label>
     <p id="crop-error" class="form-error" role="alert" hidden></p>
     <div class="dialog-actions"><button class="quiet" id="crop-cancel" type="button">キャンセル</button><button class="primary" id="crop-confirm" type="button">決定</button></div>
+  </dialog>
+  <dialog id="move-dialog" class="sheet" aria-labelledby="move-title" aria-describedby="move-description">
+    <div class="dialog-head"><h2 id="move-title">予定の日付を変更</h2></div>
+    <p id="move-description"></p><p id="move-error" class="form-error" role="alert" hidden></p>
+    <div class="dialog-actions"><button id="move-cancel" class="quiet" type="button">キャンセル</button><button id="move-confirm" class="primary" type="button">変更する</button></div>
   </dialog>
   <div id="toast" class="toast" role="status" hidden></div>
   <script type="module" src="./src/app.js"></script>

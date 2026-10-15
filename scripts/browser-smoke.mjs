@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve, extname } from 'node:path';
 import { APP_VERSION } from '../src/version.js';
 import { verifyCalendarRegistration } from './calendar-registration-smoke.mjs';
+import { verifyCalendarInteractions } from './calendar-interaction-smoke.mjs';
 
 const prefix = '/birthday-circle/', root = resolve('dist');
 const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
@@ -170,6 +171,8 @@ try {
   await command('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
   await sleep(200);
   const calendarRegistration = await verifyCalendarRegistration({ evaluate, until, check });
+  const calendarInteractions = await verifyCalendarInteractions({ evaluate, until, check, command, sleep,
+    screenshot:async name=>{mkdirSync('test-artifacts',{recursive:true});writeFileSync(`test-artifacts/${name}.png`,Buffer.from((await command('Page.captureScreenshot',{format:'png'})).data,'base64'));} });
   await evaluate(`document.querySelector('[data-tab=calendar]').click();document.querySelector('.day-cell.today .day-open').click();`);
   mkdirSync('test-artifacts', { recursive:true });
   writeFileSync('test-artifacts/calendar-day-empty-390.png', Buffer.from((await command('Page.captureScreenshot', { format:'png' })).data, 'base64'));
@@ -307,8 +310,8 @@ try {
   await until(() => evaluate('document.querySelectorAll("#people-list .person-card").length === 2'), '同日2人の登録');
   const calendarFilter = await evaluate(`(()=>{document.querySelector('[data-tab=calendar]').click();
     const selector=document.querySelector('#calendar-category');
-    const count=()=>[...document.querySelectorAll('.day-cell')].find(x=>x.querySelector('.day-number').textContent==='15')
-      .querySelectorAll('.day-avatars .calendar-event').length;
+    const count=()=>{const cell=[...document.querySelectorAll('.day-cell')].find(x=>x.querySelector('.day-number').textContent==='15');
+      return cell.querySelectorAll('.calendar-event').length+Number(cell.querySelector('.more')?.textContent.replace('+','')||0);};
     const all=count();selector.value='PET';selector.dispatchEvent(new Event('change',{bubbles:true}));const pet=count();
     selector.value='OTHER';selector.dispatchEvent(new Event('change',{bubbles:true}));const other=count();
     const type=document.querySelector('#calendar-event-type');type.value='ANNIVERSARY';
@@ -317,9 +320,9 @@ try {
     type.value='ALL';type.dispatchEvent(new Event('change',{bubbles:true}));
     selector.value='ALL';selector.dispatchEvent(new Event('change',{bubbles:true}));
     return {all,pet,other,otherAnn,otherBirthday,reset:count(),scroll:document.documentElement.scrollWidth};})()`);
-  check(calendarFilter.all === 3 && calendarFilter.pet === 3 && calendarFilter.other === 2
+  check(calendarFilter.all === 5 && calendarFilter.pet === 3 && calendarFilter.other === 2
     && calendarFilter.otherAnn === 1 && calendarFilter.otherBirthday === 1
-    && calendarFilter.reset === 3 && calendarFilter.scroll <= 390,
+    && calendarFilter.reset === 5 && calendarFilter.scroll <= 390,
     `カレンダーカテゴリ絞り込みか同日複数人表示に失敗: ${JSON.stringify(calendarFilter)}`);
   const calendarOverflow = await evaluate(`(()=>{const cell=[...document.querySelectorAll('.day-cell')].find(node=>node.querySelector('.day-number').textContent==='15');
     const more=cell.querySelector('.more');const hidden=more?.textContent;more.click();
@@ -332,7 +335,7 @@ try {
     const placeholder=[...document.querySelectorAll('.calendar-event .avatar')].every(node=>!node.querySelector('img') && node.textContent==='別');
     category.value='ALL';category.dispatchEvent(new Event('change'));
     return {hidden,total:rows.length,viaDay,detail,placeholder,titles};})()`);
-  check(calendarOverflow.hidden === '+2' && calendarOverflow.total === 5 && calendarOverflow.viaDay === 5
+  check(calendarOverflow.hidden === '+3' && calendarOverflow.total === 5 && calendarOverflow.viaDay === 5
     && calendarOverflow.detail && calendarOverflow.placeholder
     && calendarOverflow.titles.some(title=>title.includes('お迎え日'))
     && calendarOverflow.titles.some(title=>title.includes('もう一つの記念日')),
@@ -341,7 +344,7 @@ try {
     select.value='en';select.dispatchEvent(new Event('change',{bubbles:true}));})()`);
   await until(() => evaluate('document.documentElement.lang === "en"'), 'アイコンラベル英語');
   check(await evaluate(`[...document.querySelectorAll('.calendar-event')].every(node=>node.getAttribute('aria-label').startsWith('Open '))
-    && document.querySelector('.day-cell .more').getAttribute('aria-label').includes('2 hidden events')`), 'カレンダー操作の英語ラベルが不正です。');
+    && document.querySelector('.day-cell .more').getAttribute('aria-label').includes('3 hidden events')`), 'カレンダー操作の英語ラベルが不正です。');
   await evaluate(`(()=>{const select=document.querySelector('#language-choice');select.value='ja';
     select.dispatchEvent(new Event('change',{bubbles:true}));})()`);
   await until(() => evaluate('document.documentElement.lang === "ja"'), 'アイコンラベル日本語');
@@ -592,7 +595,7 @@ try {
     notifications: 1, formSizes, cropMobile, cropPreview, cropGesture, image, replacement, imagesAfterDelete,
     restoredName, restoredImages, offline: true, pc, mobile, calendarFilter,
     mobileViews, distribution, orientation, english, peopleAfterUpdate, imagesAfterUpdate, cachesAfterUpdate,
-    calendarAvatars,calendarOverflow,calendarReuse,calendarReplacement,calendarGeometry,calendarRegistration,pcDateRegistration,
+    calendarAvatars,calendarOverflow,calendarReuse,calendarReplacement,calendarGeometry,calendarRegistration,calendarInteractions,pcDateRegistration,
     waitingCache, settingsAfterUpdate, updateReloads,
     consoleErrors: errors.length, externalRequests: externalRequests.length }));
 } finally {

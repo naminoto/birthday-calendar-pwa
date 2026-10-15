@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync
 import { tmpdir } from 'node:os';
 import { join, resolve, extname } from 'node:path';
 import { APP_VERSION } from '../src/version.js';
+import { verifyCalendarRegistration } from './calendar-registration-smoke.mjs';
 
 const prefix = '/birthday-circle/', root = resolve('dist');
 const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
@@ -168,7 +169,17 @@ try {
   await until(() => evaluate('document.documentElement.lang === "ja"'), '日本語へ戻す');
   await command('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
   await sleep(200);
-  await evaluate('document.querySelector("#home-add").click()');
+  const calendarRegistration = await verifyCalendarRegistration({ evaluate, until, check });
+  await evaluate(`document.querySelector('[data-tab=calendar]').click();document.querySelector('.day-cell.today .day-open').click();`);
+  mkdirSync('test-artifacts', { recursive:true });
+  writeFileSync('test-artifacts/calendar-day-empty-390.png', Buffer.from((await command('Page.captureScreenshot', { format:'png' })).data, 'base64'));
+  const dayAddPoint = await evaluate(`(()=>{const rect=document.querySelector('#day-add').getBoundingClientRect();return {x:rect.left+rect.width/2,y:rect.top+rect.height/2};})()`);
+  await command('Emulation.setTouchEmulationEnabled', { enabled:true });
+  await command('Input.dispatchTouchEvent', { type:'touchStart', touchPoints:[dayAddPoint] });
+  await command('Input.dispatchTouchEvent', { type:'touchEnd', touchPoints:[] });
+  await until(() => evaluate('document.querySelector("#person-dialog").open'), 'この日に登録の実タップ');
+  await command('Emulation.setTouchEmulationEnabled', { enabled:false });
+  writeFileSync('test-artifacts/calendar-day-form-390.png', Buffer.from((await command('Page.captureScreenshot', { format:'png' })).data, 'base64'));
   const formSizes = await evaluate(`(() => ({
     minimum: Math.min(...[...document.querySelectorAll('input:not([type=checkbox]):not([type=hidden]),select,textarea')]
       .map(node=>parseFloat(getComputedStyle(node).fontSize))),
@@ -468,6 +479,12 @@ try {
   await until(() => evaluate('Boolean(navigator.serviceWorker.controller)'), 'Service Worker制御');
   await command('Emulation.clearDeviceMetricsOverride');
   await sleep(200);
+  const pcDateRegistration = await evaluate(`(()=>{const cell=[...document.querySelectorAll('.day-cell')].find(node=>node.querySelector('.day-number').textContent==='1');
+    cell.querySelector('.day-open').click();const list=document.querySelector('#detail-dialog').open && !document.querySelector('#day-add').hidden;
+    document.querySelector('#day-add').click();const form=document.querySelector('#person-birth-day').value==='1'
+      && document.querySelector('#person-birth-year').value==='' && document.querySelectorAll('dialog[open]').length===1;
+    document.querySelector('#person-dialog [data-close]').click();return {list,form};})()`);
+  check(pcDateRegistration.list && pcDateRegistration.form, 'PCの日付一覧→登録フォーム遷移が不正です。');
   const pc = await evaluate(`({width:innerWidth,scroll:document.documentElement.scrollWidth,sw:!!navigator.serviceWorker.controller,
     avatar:document.querySelector('.calendar-event .avatar').getBoundingClientRect().width,
     names:getComputedStyle(document.querySelector('.calendar-event .event-name')).display!=='none'})`);
@@ -559,6 +576,10 @@ try {
   check(await evaluate(`(async()=>{const images=[...document.querySelectorAll('.calendar-event img')];
     await Promise.all(images.map(img=>img.decode()));return images.length===2 && images.every(img=>img.naturalWidth===512);})()`),
     'オフラインでカレンダーのプロフィール画像を表示できません。');
+  check(await evaluate(`(()=>{document.querySelector('[data-tab=calendar]').click();document.querySelector('.day-open').click();
+    document.querySelector('#day-add').click();const valid=document.querySelector('#person-dialog').open
+      && document.querySelector('#person-birth-day').value==='1' && document.querySelector('#person-birth-year').value==='';
+    document.querySelector('#person-dialog [data-close]').click();return valid;})()`), 'オフラインの日付から登録できません。');
   await evaluate('document.querySelector("[data-tab=settings]").click()');
   await evaluate('document.querySelector("#settings-check-update").click()');
   check(await evaluate('document.querySelector("#settings-update-status").textContent.includes("offline")'),
@@ -571,7 +592,7 @@ try {
     notifications: 1, formSizes, cropMobile, cropPreview, cropGesture, image, replacement, imagesAfterDelete,
     restoredName, restoredImages, offline: true, pc, mobile, calendarFilter,
     mobileViews, distribution, orientation, english, peopleAfterUpdate, imagesAfterUpdate, cachesAfterUpdate,
-    calendarAvatars,calendarOverflow,calendarReuse,calendarReplacement,calendarGeometry,
+    calendarAvatars,calendarOverflow,calendarReuse,calendarReplacement,calendarGeometry,calendarRegistration,pcDateRegistration,
     waitingCache, settingsAfterUpdate, updateReloads,
     consoleErrors: errors.length, externalRequests: externalRequests.length }));
 } finally {

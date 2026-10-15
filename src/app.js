@@ -16,7 +16,7 @@ import { APP_VERSION } from './version.js';
 const $ = (id) => document.getElementById(id);
 let avatarEditor, updates;
 const state = { db: null, people: [], images: new Map(), notices: [], settings: null,
-  today: tokyoToday(), month: null, selectedPersonId: null, detailPersonId: null,
+  today: tokyoToday(), month: null, selectedPersonId: null, detailPersonId: null, detailDay:null, formCalendarDate:null,
   railFilter: 'all', transferRoute: 'phone-pc', preparedBackup: null };
 const [todayYear, todayMonth] = state.today.split('-').map(Number);
 state.month = new Date(Date.UTC(todayYear, todayMonth - 1, 1));
@@ -145,6 +145,7 @@ function renderCalendar() {
     const events = byDay.get(date) ?? [];
     // 日付と人物をそれぞれボタンにし、buttonの入れ子を避ける。
     const cell = el('div', `day-cell${date === state.today ? ' today' : ''}`);
+    cell.dataset.date = date;
     cell.setAttribute('role', 'gridcell'); cell.setAttribute('aria-label', t('dayAria', { month, day, count:events.length }));
     const dayButton = el('button', 'day-number day-open', day); dayButton.type = 'button';
     dayButton.setAttribute('aria-label', t('dayAria', { month, day, count:events.length }));
@@ -171,10 +172,7 @@ function renderCalendar() {
       pics.append(more);
     }
     cell.append(pics);
-    cell.addEventListener('click', () => { if (state.selectedPersonId) assignBirthday(state.selectedPersonId, month, day);
-      else if (events.length === 1) openDetail(events[0].person.id);
-      else if (events.length > 1) openDayPeople(events, month, day);
-      else toast(t('emptyDay')); });
+    cell.addEventListener('click', () => openDayPeople(events, month, day));
     cell.addEventListener('dragover', (event) => { event.preventDefault(); cell.classList.add('drop-target'); });
     cell.addEventListener('dragleave', () => cell.classList.remove('drop-target'));
     cell.addEventListener('drop', (event) => { event.preventDefault(); cell.classList.remove('drop-target');
@@ -184,10 +182,17 @@ function renderCalendar() {
 }
 
 function openDayPeople(events, month, day) {
-  const body = $('detail-body'); body.replaceChildren(el('p', 'help', t('dayPeople', { month, day })));
+  state.detailPersonId = null; state.detailDay = { year:state.month.getUTCFullYear(), month, day };
+  $('detail-dialog').querySelector('h2').textContent = t('dayPeople', { month, day });
+  const body = $('detail-body'); body.replaceChildren();
+  if (!events.length) body.append(el('p', 'help', t('emptyDay')));
   body.append(...events.map((entry) => makePersonRow(entry.person, entry.ann.type === 'BIRTHDAY'
     ? t('birthday') : anniversaryText(entry.ann, entry.date))));
-  $('detail-edit').hidden = true; $('detail-choose').hidden = true; $('detail-dialog').showModal();
+  $('detail-edit').hidden = true; $('detail-choose').hidden = true; $('day-add').hidden = false;
+  const selected = byId(state.selectedPersonId);
+  $('day-assign').hidden = !selected;
+  if (selected) $('day-assign').textContent = t('assignBirthdayOnDate', { name:selected.displayName });
+  if (!$('detail-dialog').open) $('detail-dialog').showModal();
 }
 
 async function assignBirthday(personId, month, day) {
@@ -236,7 +241,10 @@ function detailBlock(title, values) {
 function openDetail(id) {
   const person = byId(id); if (!person) return;
   if ($('detail-dialog').open) $('detail-dialog').close();
-  state.detailPersonId = id; $('detail-edit').hidden = false; $('detail-choose').hidden = false;
+  state.detailPersonId = id; state.detailDay = null;
+  $('detail-dialog').querySelector('h2').textContent = t('detail');
+  $('day-add').hidden = true; $('day-assign').hidden = true;
+  $('detail-edit').hidden = false; $('detail-choose').hidden = false;
   const body = $('detail-body'); body.replaceChildren();
   const top = el('div', 'detail-top'); top.append(avatar(person, true));
   const text = el('div'); text.append(el('h3', '', person.displayName), el('p', '',
@@ -300,15 +308,18 @@ function linkRow(value = null) {
   remove.onclick = () => row.remove(); row.append(remove); return row;
 }
 
-function openForm(id = null) {
+function openForm(id = null, initialDate = null) {
   const person = id ? byId(id) : null;
+  // 登録経路の一時状態のみ。表示中の年は生年へ渡さない。
+  state.formCalendarDate = !person && initialDate ? { ...initialDate } : null;
   $('person-form').reset(); $('person-id').value = person?.id ?? '';
   $('person-dialog-title').textContent = person ? t('personEdit') : t('personAdd');
   $('person-name').value = person?.displayName ?? ''; $('person-category').value = person?.category ?? 'OTHER';
   $('person-series').value = person?.seriesName ?? ''; $('person-username').value = person?.username ?? '';
   $('person-x-url').value = person?.xProfileUrl ?? ''; $('person-memo').value = person?.memo ?? '';
   const b = person && birthdayOf(person);
-  $('person-birth-month').value = b?.month ?? ''; $('person-birth-day').value = b?.day ?? '';
+  $('person-birth-month').value = b?.month ?? state.formCalendarDate?.month ?? '';
+  $('person-birth-day').value = b?.day ?? state.formCalendarDate?.day ?? '';
   $('person-birth-year').value = b?.year ?? ''; $('person-show-age').checked = b?.showAge ?? false;
   $('remove-image-wrap').hidden = !person?.hasImage; $('delete-person').hidden = !person;
   $('anniversary-fields').replaceChildren(...(person?.anniversaries.filter((ann) => ann.type !== 'BIRTHDAY') ?? []).map(anniversaryRow));
@@ -316,6 +327,8 @@ function openForm(id = null) {
   $('person-error').hidden = true;
   avatarEditor.reset(person ? state.images.get(person.id) : null);
   $('person-dialog').showModal();
+  $('person-form').scrollTop = 0;
+  $('person-name').focus({ preventScroll:true });
 }
 
 async function submitPerson(event) {
@@ -342,8 +355,25 @@ async function submitPerson(event) {
     xProfileUrl: $('person-x-url').value, memo: $('person-memo').value, anniversaries, links };
   try {
     const image = avatarEditor.imageForSave();
-    await savePerson(state.db, person, { image, removeImage: !image && $('person-remove-image').checked });
-    $('person-dialog').close(); await refresh(); toast(t(old ? 'personUpdated' : 'personAdded'));
+    const saved = await savePerson(state.db, person, { image, removeImage: !image && $('person-remove-image').checked });
+    const calendarDate = state.formCalendarDate, birthday = birthdayOf(saved);
+    if (calendarDate) {
+      state.month = new Date(Date.UTC(calendarDate.year, (birthday?.month ?? calendarDate.month) - 1, 1));
+      if ($('calendar-category').value !== 'ALL' && $('calendar-category').value !== saved.category) $('calendar-category').value = 'ALL';
+      if ($('calendar-event-type').value === 'ANNIVERSARY') $('calendar-event-type').value = 'ALL';
+    }
+    state.formCalendarDate = null;
+    $('person-dialog').close(); await refresh();
+    if (calendarDate) {
+      switchTab('calendar');
+      const targetDate = birthday ? occurrenceForYear(birthday, calendarDate.year)
+        : `${calendarDate.year}-${String(calendarDate.month).padStart(2, '0')}-${String(calendarDate.day).padStart(2, '0')}`;
+      const target = $('calendar-grid').querySelector(`[data-person-id="${saved.id}"]`)
+        ?? $('calendar-grid').querySelector(`[data-date="${targetDate}"] .day-open`);
+      target?.focus({ preventScroll:true }); target?.scrollIntoView({ block:'nearest' });
+    }
+    toast(t(calendarDate && birthday ? 'birthdaySaved' : old ? 'personUpdated' : 'personAdded',
+      { name:saved.displayName, date:birthday ? t('dateDay', birthday) : '' }));
   } catch (error) { errorNode.textContent = errorText(error); errorNode.hidden = false; }
 }
 
@@ -462,6 +492,11 @@ function bindEvents() {
       setLanguage(event.target.value); applyStaticTranslations(); avatarEditor.refreshLanguage();
       renderHome(); renderCalendar(); renderPeople(); renderBirthdays(); renderNotifications(); renderSettings();
       if ($('detail-dialog').open && state.detailPersonId) openDetail(state.detailPersonId);
+      else if ($('detail-dialog').open && state.detailDay) {
+        const { year, month, day } = state.detailDay;
+        const date = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        openDayPeople(calendarEvents(state.people, year, month, $('calendar-category').value, $('calendar-event-type').value).get(date) ?? [], month, day);
+      }
       state.preparedBackup = null; $('restore-preview').hidden = true;
       updates?.refreshLanguage();
       if (!updates) $('settings-update-status').textContent = t('updateUnavailable');
@@ -477,12 +512,25 @@ function bindEvents() {
   });
   for (const id of ['home-add', 'people-add']) $(id).onclick = () => openForm();
   $('person-form').addEventListener('submit', submitPerson);
+  $('person-dialog').addEventListener('close', () => {
+    if ($('person-dialog').open || !state.formCalendarDate) return;
+    const { year, month, day } = state.formCalendarDate; state.formCalendarDate = null;
+    $('calendar-grid').querySelector(`[data-date="${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}"] .day-open`)?.focus({ preventScroll:true });
+  });
   $('add-anniversary').onclick = () => $('anniversary-fields').append(anniversaryRow());
   $('add-link').onclick = () => $('link-fields').append(linkRow());
   for (const button of document.querySelectorAll('[data-close]')) button.onclick = () => $(button.dataset.close).close();
   for (const dialog of document.querySelectorAll('dialog')) dialog.addEventListener('click', (event) => {
     if (event.target === dialog) dialog.close(); });
   $('detail-edit').onclick = () => { $('detail-dialog').close(); openForm(state.detailPersonId); };
+  $('day-add').onclick = () => {
+    const date = state.detailDay; if (!date) return;
+    $('detail-dialog').close(); state.selectedPersonId = null; renderCalendar(); openForm(null, date);
+  };
+  $('day-assign').onclick = async () => {
+    const date = state.detailDay, id = state.selectedPersonId; if (!date || !id) return;
+    $('detail-dialog').close(); await assignBirthday(id, date.month, date.day);
+  };
   $('detail-choose').onclick = () => { state.selectedPersonId = state.detailPersonId;
     $('detail-dialog').close(); switchTab('calendar'); renderCalendar(); toast(t('selectCalendarDay')); };
   $('delete-person').onclick = async () => { const person = byId($('person-id').value);

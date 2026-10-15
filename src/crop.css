@@ -52,6 +52,8 @@ input::file-selector-button { font: inherit; }
 .calendar-filters .calendar-category-filter { flex:1 1 160px; min-width:0; }
 .calendar-filters select { max-width:100%; }
 .day-cell .day-open { width:100%; min-height:28px; padding:0 2px; border:0; background:transparent; color:inherit; text-align:left; }
+#detail-dialog .dialog-actions { flex-wrap:wrap; }
+#detail-dialog #day-add { min-height:44px; }
 .day-cell .day-avatars { display:flex; flex-direction:column; gap:3px; width:100%; min-width:0; }
 .calendar-event { display:flex; align-items:center; gap:5px; min-width:0; width:100%; min-height:40px;
   padding:3px; border:1px solid transparent; border-radius:9px; background:#edf1ff; color:#343b74;
@@ -76,6 +78,7 @@ input::file-selector-button { font: inherit; }
   .calendar-event .event-name { display:none; }
   #view-calendar .page-heading h1 { font-size:clamp(1rem,4.8vw,1.2rem); }
   #calendar-today { flex-shrink:0; white-space:nowrap; }
+  #detail-dialog #day-add, #detail-dialog #day-assign { width:100%; }
   .calendar-event { justify-content:center; min-height:40px; padding:2px 0; }
   .calendar-event .event-avatar { width:30px; }
   .calendar-event .event-mark { width:14px; height:14px; font-size:10px; }

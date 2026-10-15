@@ -4,6 +4,7 @@ import { readFileSync, existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { join, resolve, extname, sep } from 'node:path';
 import { tmpdir } from 'node:os';
 import { APP_VERSION } from '../src/version.js';
+import { verifyCalendarRegistration } from './calendar-registration-smoke.mjs';
 
 // 公開版の確認、または旧配布物→現在のdistの更新確認。実データには触れない。
 const option = (name) => process.argv.find((arg) => arg.startsWith(`--${name}=`))?.slice(name.length + 3);
@@ -72,6 +73,12 @@ try {
     const remove=indexedDB.deleteDatabase.bind(indexedDB);indexedDB.deleteDatabase=function(name){window.__dataResetCalls.push('delete:'+name);return remove(name);};` });
   await command('Page.navigate', { url:baseUrl });
   await until(() => evaluate('Boolean(document.querySelector("#app-version")?.textContent && navigator.serviceWorker.controller)'), 'App startup timeout');
+  let registrationFlow = null;
+  // 明示指定時だけ、公開版の一時プロファイルに架空データを登録して操作検証する。
+  if (publicUrl && option('check-registration') === 'true') {
+    await command('Emulation.setDeviceMetricsOverride', { width:390, height:844, deviceScaleFactor:1, mobile:true });
+    registrationFlow = await verifyCalendarRegistration({ evaluate, until, check });
+  }
   let upgrade = null;
   if (previousDist) {
     const previousVersion = await evaluate('document.querySelector("#app-version").textContent');
@@ -137,7 +144,7 @@ try {
   const externalRequests = requests.filter((url) => !url.startsWith(baseUrl) && !url.startsWith('blob:') && !url.startsWith('data:'));
   check(externalRequests.length === 0, `Unexpected requests: ${JSON.stringify(externalRequests)}`);
   check(errors.length === 0, `Browser errors: ${JSON.stringify(errors)}`);
-  console.log(JSON.stringify({ baseUrl, upgrade, published, offlineAfterUpgrade:!!previousDist, consoleErrors:errors.length, externalRequests:externalRequests.length }));
+  console.log(JSON.stringify({ baseUrl, upgrade, published, registrationFlow, offlineAfterUpgrade:!!previousDist, consoleErrors:errors.length, externalRequests:externalRequests.length }));
 } finally {
   socket?.close(); child?.kill(); server?.close();
   if (profile.startsWith(resolve(tmpdir()) + sep) && profile.includes('birthday-release-smoke-')) {

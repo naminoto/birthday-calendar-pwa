@@ -2,6 +2,8 @@ import { CATEGORIES, ANNIVERSARY_TYPES } from './model.js';
 
 const messages = {
   ja: {
+    dayDragHelp:'長押しして上下で並び替え。一覧の上へ出すとカレンダーへ移動できます。キーボードはAlt＋↑↓。',
+    orderSaved:'予定の表示順を保存しました。', orderInvalid:'予定が変更されています。一覧を開き直してください。',
     appName:'Yoribi', appTitle:'Yoribi（ヨリビ）', appearanceTitle:'外観・言語', appInfo:'アプリ情報・更新',
     theme:'テーマ', theme_light:'ライト', theme_dark:'ダーク', theme_system:'端末の設定に合わせる',
     skip:'本文へ移動', tagline:'大切な人の、大切な日をそっとそばに。', bell:'通知を開く', navigation:'画面切り替え',
@@ -101,6 +103,8 @@ const messages = {
     workerFailed:'Service Workerを登録できませんでした。',
   },
   en: {
+    dayDragHelp:'Hold and drag up/down to reorder. Drag above the list to move onto the calendar. Keyboard: Alt + ↑/↓.',
+    orderSaved:'Event order saved.', orderInvalid:'Events have changed. Please reopen the list.',
     appName:'Yoribi', appTitle:'Yoribi', appearanceTitle:'Appearance & language', appInfo:'About & updates',
     theme:'Theme', theme_light:'Light', theme_dark:'Dark', theme_system:'Use device setting',
     skip:'Skip to content', tagline:'A birthday notebook stored on this device', bell:'Open notifications', navigation:'Navigation',
@@ -281,6 +285,7 @@ const errorEnglish = {
 };
 export function errorText(error) {
   const message = String(error?.message ?? error ?? '');
+  if (message === 'orderInvalid') return t('orderInvalid');
   return language === 'en' ? errorEnglish[message] ?? message : message;
 }
 

@@ -1,5 +1,6 @@
 import { DEFAULT_SETTINGS, birthdayOf, normalizePerson } from './model.js';
 import { normalizeAppearance } from './appearance.js';
+import { reorderedPeople } from './calendar-order.js';
 
 export const DB_NAME = 'birthday-circle-local';
 export const DB_VERSION = 3;
@@ -70,6 +71,18 @@ export function all(db, store) {
 
 export function get(db, store, key) {
   return result(db.transaction(store).objectStore(store).get(key));
+}
+
+// 同じtransaction内で最新の全予定を検証して順序だけ更新。画像・通知には触れない。
+export async function reorderDayEvents(db, date, ids) {
+  const tx = db.transaction('people', 'readwrite');
+  const done = completed(tx), store = tx.objectStore('people');
+  let invalid;
+  store.getAll().onsuccess = event => {
+    try { for (const person of reorderedPeople(event.target.result, date, ids)) store.put(person); }
+    catch (error) { invalid = error; tx.abort(); }
+  };
+  try { await done; } catch (error) { throw invalid ?? error; }
 }
 
 export async function loadSettings(db) {

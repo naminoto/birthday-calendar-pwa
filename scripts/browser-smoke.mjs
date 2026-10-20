@@ -7,6 +7,7 @@ import { APP_VERSION } from '../src/version.js';
 import { verifyCalendarRegistration } from './calendar-registration-smoke.mjs';
 import { verifyCalendarInteractions } from './calendar-interaction-smoke.mjs';
 import { verifyYoribiUI } from './yoribi-smoke.mjs';
+import { verifyDayListGestures } from './day-list-smoke.mjs';
 
 const prefix = '/birthday-circle/', root = resolve('dist');
 const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
@@ -175,6 +176,8 @@ try {
   const yoribi = await verifyYoribiUI({evaluate,until,check,command,screenshot:async name=>{mkdirSync('test-artifacts',{recursive:true});writeFileSync(`test-artifacts/${name}.png`,Buffer.from((await command('Page.captureScreenshot',{format:'png'})).data,'base64'));}});
   const calendarInteractions = await verifyCalendarInteractions({ evaluate, until, check, command, sleep,
     screenshot:async name=>{mkdirSync('test-artifacts',{recursive:true});writeFileSync(`test-artifacts/${name}.png`,Buffer.from((await command('Page.captureScreenshot',{format:'png'})).data,'base64'));} });
+  const dayListGestures = await verifyDayListGestures({evaluate,until,check,command,sleep,
+    screenshot:async name=>{mkdirSync('test-artifacts',{recursive:true});writeFileSync(`test-artifacts/${name}.png`,Buffer.from((await command('Page.captureScreenshot',{format:'png'})).data,'base64'));}});
   await evaluate(`document.querySelector('[data-tab=calendar]').click();document.querySelector('.day-cell.today .day-open').click();`);
   mkdirSync('test-artifacts', { recursive:true });
   writeFileSync('test-artifacts/calendar-day-empty-390.png', Buffer.from((await command('Page.captureScreenshot', { format:'png' })).data, 'base64'));
@@ -604,7 +607,7 @@ try {
     restoredName, restoredImages, offline: true, pc, mobile, calendarFilter,
     mobileViews, distribution, orientation, english, peopleAfterUpdate, imagesAfterUpdate, cachesAfterUpdate,
     calendarAvatars,calendarOverflow,calendarReuse,calendarReplacement,calendarGeometry,calendarRegistration,calendarInteractions,pcDateRegistration,yoribi,
-    waitingCache, settingsAfterUpdate, updateReloads,
+    waitingCache, settingsAfterUpdate, updateReloads,dayListGestures,
     consoleErrors: errors.length, externalRequests: externalRequests.length }));
 } finally {
   socket?.close(); child?.kill(); server.close();

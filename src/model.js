@@ -92,6 +92,8 @@ export function calendarEvents(people, year, month, category = 'ALL', eventType 
       byDay.get(date).push({ person, ann, date });
     }
   }
+  for (const events of byDay.values()) events.sort((a, b) =>
+    (a.ann.calendarOrder ?? Number.MAX_SAFE_INTEGER) - (b.ann.calendarOrder ?? Number.MAX_SAFE_INTEGER));
   return byDay;
 }
 
@@ -157,7 +159,12 @@ export function normalizePerson(input, existing = null, now = new Date().toISOSt
       || (year !== null && new Date(Date.UTC(year, month - 1, day)).getUTCDate() !== day)) {
       throw new Error('記念日の種類または日付が正しくありません。');
     }
-    if (item.type === 'BIRTHDAY') return { type: 'BIRTHDAY', month, day, year, showAge: Boolean(item.showAge) };
+    const previous = existing?.anniversaries?.find((ann) => item.type === 'BIRTHDAY' ? ann.type === 'BIRTHDAY' : ann.id === item.id);
+    const sameDate = previous && previous.month === month && previous.day === day && previous.year === year;
+    const rank = item.calendarOrder ?? (sameDate ? previous.calendarOrder : undefined);
+    if (rank !== undefined && (!Number.isSafeInteger(rank) || rank < 0 || rank > 1000000)) throw new Error('orderInvalid');
+    const order = rank !== undefined && (!previous || sameDate) ? { calendarOrder:rank } : {};
+    if (item.type === 'BIRTHDAY') return { type: 'BIRTHDAY', month, day, year, showAge: Boolean(item.showAge), ...order };
     if (item.title != null && typeof item.title !== 'string') {
       throw new Error('記念日の名称は1〜100文字で入力してください。');
     }
@@ -174,7 +181,7 @@ export function normalizePerson(input, existing = null, now = new Date().toISOSt
       throw new Error('記念日IDが正しくありません。');
     }
     return { id, type: item.type, title, month, day, year, recurring,
-      showAnniversary: item.showAnniversary === true, notify: item.notify === true };
+      showAnniversary: item.showAnniversary === true, notify: item.notify === true, ...order };
   });
   if (anniversaries.filter((item) => item.type === 'BIRTHDAY').length > 1) {
     throw new Error('誕生日は1人につき1件までです。');

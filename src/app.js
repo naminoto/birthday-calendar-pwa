@@ -18,6 +18,8 @@ import { setupCalendarGestures } from './calendar-gestures.js';
 import { loadAppearance, saveAppearance } from './db.js';
 import { DEFAULT_APPEARANCE, applyAppearance } from './appearance.js';
 import { setupSettingsSections, setupOutlineIcons } from './settings-ui.js';
+import { reorderDayEvents } from './db.js';
+import { entryId } from './calendar-order.js';
 
 const $ = (id) => document.getElementById(id);
 let avatarEditor, updates, gestures, pendingMove = null, moveSaving = false;
@@ -215,7 +217,7 @@ function requestEventMove(payload) {
     $('move-description').textContent = t('moveQuestion', { name:person.displayName,
       event:ann.type === 'BIRTHDAY' ? t('birthday') : eventTitle(ann), from:payload.from, to:payload.to });
     $('move-error').hidden = true; $('move-dialog').showModal();
-  } catch { toast(t('moveStale')); }
+  } catch { toast(t('moveStale'));if(payload.sourceList)reopenDay(); }
 }
 async function confirmEventMove() {
   if (!pendingMove || moveSaving) return;
@@ -243,13 +245,36 @@ function openDayPeople(events, month, day) {
   $('detail-dialog').querySelector('h2').textContent = t('dayPeople', { month, day });
   const body = $('detail-body'); body.replaceChildren();
   if (!events.length) body.append(el('p', 'help', t('emptyDay')));
-  body.append(...events.map((entry) => makePersonRow(entry.person, entry.ann.type === 'BIRTHDAY'
-    ? t('birthday') : anniversaryText(entry.ann, entry.date))));
+  if (events.length) body.append(el('p', 'help day-drag-help', t('dayDragHelp')));
+  body.append(...events.map((entry) => {
+    const row = makePersonRow(entry.person, entry.ann.type === 'BIRTHDAY' ? t('birthday') : anniversaryText(entry.ann, entry.date));
+    row.classList.add('day-event-row'); row.dataset.personId=entry.person.id; row.dataset.eventKey=eventKey(entry.ann);
+    row.dataset.entryId=entryId(entry); row.dataset.date=entry.date; row.draggable=false;
+    row.setAttribute('aria-label', `${entry.person.displayName} · ${entry.ann.type === 'BIRTHDAY' ? t('birthday') : anniversaryText(entry.ann,entry.date)} · ${t('dayDragHelp')}`);
+    row.addEventListener('keydown', async event => {
+      if (!event.altKey || !['ArrowUp','ArrowDown'].includes(event.key)) return;
+      event.preventDefault();const ids=events.map(entryId),index=ids.indexOf(entryId(entry)),next=index+(event.key==='ArrowUp'?-1:1);
+      if(next<0||next>=ids.length)return;[ids[index],ids[next]]=[ids[next],ids[index]];
+      await saveDayOrder(entry.date,ids);$('detail-body').querySelector(`[data-entry-id="${entryId(entry)}"]`)?.focus();
+    });
+    return row;
+  }));
   $('detail-edit').hidden = true; $('detail-choose').hidden = true; $('day-add').hidden = false;
   const selected = byId(state.selectedPersonId);
   $('day-assign').hidden = !selected;
   if (selected) $('day-assign').textContent = t('assignBirthdayOnDate', { name:selected.displayName });
   if (!$('detail-dialog').open) $('detail-dialog').showModal();
+}
+
+function reopenDay() {
+  const date=state.detailDay;if(!date)return;
+  const key=`${date.year}-${String(date.month).padStart(2,'0')}-${String(date.day).padStart(2,'0')}`;
+  const events=calendarEvents(state.people,date.year,date.month,$('calendar-category').value,$('calendar-event-type').value).get(key)??[];
+  openDayPeople(events,date.month,date.day);
+}
+async function saveDayOrder(date,ids) {
+  try { await reorderDayEvents(state.db,date,ids);state.people=await all(state.db,'people');renderCalendar();reopenDay();toast(t('orderSaved')); }
+  catch(error) { toast(errorText(error)); }
 }
 
 async function assignBirthday(personId, month, day) {
@@ -556,14 +581,20 @@ function bindEvents() {
   systemTheme.addEventListener('change', () => applyAppearance(appearance, systemTheme.matches));
   avatarEditor = setupAvatarEditor();
   gestures = setupCalendarGestures({ grid:$('calendar-grid'),
-    roots:[$('calendar-grid'), $('person-rail'), $('people-list')], onMove:requestEventMove, onSelect:selectPerson });
+    roots:[$('calendar-grid'), $('person-rail'), $('people-list'), $('detail-body')], onMove:requestEventMove, onSelect:selectPerson,
+    onReorder:saveDayOrder, onCancelList:reopenDay,
+    onLeaveList:() => { $('detail-dialog').close();$('calendar-grid').scrollIntoView({block:'center',behavior:'instant'}); } });
+  $('detail-body').addEventListener('dragstart',event=>event.preventDefault());
   // 画像の標準ドラッグがPointer Eventsを横取りしないよう、カレンダーだけ抑止。
   $('calendar-grid').addEventListener('dragstart', (event) => event.preventDefault());
   compactCalendar.addEventListener('change', renderCalendar);
   $('clear-selection').onclick = () => { state.selectedPersonId = null; renderSelection(); };
   $('move-confirm').onclick = confirmEventMove;
-  $('move-cancel').onclick = () => { if (!moveSaving) $('move-dialog').close(); };
-  $('move-dialog').addEventListener('cancel', (event) => { if (moveSaving) event.preventDefault(); });
+  $('move-cancel').onclick = () => { if (!moveSaving) { const restore=pendingMove?.sourceList;$('move-dialog').close();if(restore)reopenDay(); } };
+  $('move-dialog').addEventListener('cancel', (event) => {
+    event.preventDefault();if(moveSaving)return;
+    const restore=pendingMove?.sourceList;$('move-dialog').close();if(restore)reopenDay();
+  });
   $('move-dialog').addEventListener('close', () => { pendingMove = null; });
   for (const button of document.querySelectorAll('[data-tab]')) button.onclick = () => switchTab(button.dataset.tab);
   $('language-choice').onchange = async (event) => {

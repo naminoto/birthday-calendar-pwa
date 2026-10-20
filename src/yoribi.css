@@ -49,5 +49,13 @@ a,.eyebrow { color:var(--brand); }.avatar-person small,.weekday { color:var(--mu
 .brand-mark { background:transparent!important; box-shadow:none; border-radius:12px; overflow:hidden; }
 .brand-mark img { width:42px; height:42px; display:block; }
 .day-cell.today { border-color:var(--brand); }
+.day-event-row { margin:6px 0; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; touch-action:pan-y; }
+.day-event-row img { pointer-events:none; -webkit-user-drag:none; }
+.day-event-row.dragging { opacity:.45; }
+.day-event-row.insert-before { box-shadow:0 -4px 0 var(--brand); }
+.day-event-row.insert-after { box-shadow:0 4px 0 var(--brand); }
+.drag-ghost { background:var(--surface);color:var(--ink);border:2px solid var(--brand);border-radius:12px;padding:8px;width:160px;min-height:52px;max-width:50vw;display:flex;gap:8px;align-items:center; }
+.drag-ghost .event-name { display:block; font-size:12px;overflow:hidden; }
+.drag-ghost .avatar { width:40px;height:40px; }
 html[data-theme=dark] .brand-mark { background:#71628e; color:#fff; }
 @media(max-width:520px) { .app-shell { padding-left:10px; padding-right:10px; } .calendar-panel { padding:10px; } }

@@ -6,6 +6,7 @@ import { join, resolve, extname } from 'node:path';
 import { APP_VERSION } from '../src/version.js';
 import { verifyCalendarRegistration } from './calendar-registration-smoke.mjs';
 import { verifyCalendarInteractions } from './calendar-interaction-smoke.mjs';
+import { verifyYoribiUI } from './yoribi-smoke.mjs';
 
 const prefix = '/birthday-circle/', root = resolve('dist');
 const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
@@ -112,7 +113,7 @@ try {
     hero:document.querySelector('.hero h1').textContent,
     calendar:document.querySelector('#view-calendar h1').textContent,
     settings:document.querySelector('#view-settings h1').textContent,
-    backup:document.querySelectorAll('#view-settings .setting-card')[2].querySelector('h2').textContent,
+    backup:document.querySelector('#backup-settings h2').textContent,
     form:document.querySelector('#person-form > label:nth-of-type(1)').textContent.trim(),
     crop:document.querySelector('#crop-title').textContent,
     version:document.querySelector('#app-version').textContent,
@@ -171,6 +172,7 @@ try {
   await command('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
   await sleep(200);
   const calendarRegistration = await verifyCalendarRegistration({ evaluate, until, check });
+  const yoribi = await verifyYoribiUI({evaluate,until,check,command,screenshot:async name=>{mkdirSync('test-artifacts',{recursive:true});writeFileSync(`test-artifacts/${name}.png`,Buffer.from((await command('Page.captureScreenshot',{format:'png'})).data,'base64'));}});
   const calendarInteractions = await verifyCalendarInteractions({ evaluate, until, check, command, sleep,
     screenshot:async name=>{mkdirSync('test-artifacts',{recursive:true});writeFileSync(`test-artifacts/${name}.png`,Buffer.from((await command('Page.captureScreenshot',{format:'png'})).data,'base64'));} });
   await evaluate(`document.querySelector('[data-tab=calendar]').click();document.querySelector('.day-cell.today .day-open').click();`);
@@ -288,11 +290,14 @@ try {
     const first=images[0],fallback=first.parentElement;first.dispatchEvent(new Event('error'));
     const fallbackWorks=!fallback.querySelector('img') && fallback.textContent==='ブ';
     document.querySelector('#month-next').click();document.querySelector('#month-prev').click();
-    const events=[...document.querySelectorAll('.calendar-event')];
+    const marks=[...document.querySelectorAll('.calendar-event .event-mark')].map(node=>node.textContent);
+    const type=document.querySelector('#calendar-event-type');type.value='ANNIVERSARY';type.dispatchEvent(new Event('change'));
+    marks.push(...[...document.querySelectorAll('.calendar-event .event-mark')].map(node=>node.textContent));
+    type.value='ALL';type.dispatchEvent(new Event('change'));
     return {images:images.length,shared:images.every(img=>img.src===document.querySelector('#person-rail img').src),
-      marks:events.map(node=>node.querySelector('.event-mark').textContent),fallbackWorks,
+      marks,fallbackWorks,
       nested:document.querySelectorAll('button button').length};})()`);
-  check(calendarAvatars.images === 2 && calendarAvatars.shared && calendarAvatars.fallbackWorks
+  check(calendarAvatars.images === 1 && calendarAvatars.shared && calendarAvatars.fallbackWorks
     && calendarAvatars.marks.includes('🎂') && calendarAvatars.marks.includes('🎉') && calendarAvatars.nested === 0,
     `カレンダー画像・共有URL・種別・代替表示に問題: ${JSON.stringify(calendarAvatars)}`);
   await evaluate('document.querySelector(".calendar-event").click()');
@@ -335,7 +340,7 @@ try {
     const placeholder=[...document.querySelectorAll('.calendar-event .avatar')].every(node=>!node.querySelector('img') && node.textContent==='別');
     category.value='ALL';category.dispatchEvent(new Event('change'));
     return {hidden,total:rows.length,viaDay,detail,placeholder,titles};})()`);
-  check(calendarOverflow.hidden === '+3' && calendarOverflow.total === 5 && calendarOverflow.viaDay === 5
+  check(calendarOverflow.hidden === '+4' && calendarOverflow.total === 5 && calendarOverflow.viaDay === 5
     && calendarOverflow.detail && calendarOverflow.placeholder
     && calendarOverflow.titles.some(title=>title.includes('お迎え日'))
     && calendarOverflow.titles.some(title=>title.includes('もう一つの記念日')),
@@ -344,7 +349,7 @@ try {
     select.value='en';select.dispatchEvent(new Event('change',{bubbles:true}));})()`);
   await until(() => evaluate('document.documentElement.lang === "en"'), 'アイコンラベル英語');
   check(await evaluate(`[...document.querySelectorAll('.calendar-event')].every(node=>node.getAttribute('aria-label').startsWith('Open '))
-    && document.querySelector('.day-cell .more').getAttribute('aria-label').includes('3 hidden events')`), 'カレンダー操作の英語ラベルが不正です。');
+    && document.querySelector('.day-cell .more').getAttribute('aria-label').includes('4 hidden events')`), 'カレンダー操作の英語ラベルが不正です。');
   await evaluate(`(()=>{const select=document.querySelector('#language-choice');select.value='ja';
     select.dispatchEvent(new Event('change',{bubbles:true}));})()`);
   await until(() => evaluate('document.documentElement.lang === "ja"'), 'アイコンラベル日本語');
@@ -364,10 +369,10 @@ try {
   const calendarGeometry = await evaluate(`(()=>{const grid=document.querySelector('#calendar-grid');
     const cells=[...grid.querySelectorAll('.day-cell')];const buttons=[...grid.querySelectorAll('.calendar-event')];
     const inside=buttons.every(button=>{const b=button.getBoundingClientRect(),c=button.closest('.day-cell').getBoundingClientRect();
-      return b.left>=c.left && b.right<=c.right && b.top>=c.top && b.bottom<=c.bottom && b.height>=40;});
-    const separate=cells.every(cell=>{const nodes=[...cell.querySelectorAll('.day-open,.calendar-event,.more')];
-      return nodes.every((node,i)=>i===0 || node.getBoundingClientRect().top>=nodes[i-1].getBoundingClientRect().bottom);});
-    const square=buttons.every(button=>{const box=button.querySelector('.avatar').getBoundingClientRect();return box.width>=28 && Math.abs(box.width-box.height)<1;});
+      return b.left>=c.left && b.right<=c.right && b.top>=c.top && b.bottom<=c.bottom && b.height>=20;});
+    const separate=cells.every(cell=>{const icon=cell.querySelector('.calendar-event')?.getBoundingClientRect(),more=cell.querySelector('.more')?.getBoundingClientRect();return !icon||!more||icon.right<=more.left;});
+    const square=cells.every(cell=>{const box=cell.getBoundingClientRect();return Math.abs(box.width-box.height)<1;})
+      &&buttons.every(button=>{const box=button.querySelector('.avatar').getBoundingClientRect();return box.width>=18 && Math.abs(box.width-box.height)<1;});
     return {columns:getComputedStyle(grid).gridTemplateColumns.split(' ').length,inside,separate,square,
       scroll:document.documentElement.scrollWidth};})()`);
   check(calendarGeometry.columns === 7 && calendarGeometry.inside && calendarGeometry.separate
@@ -491,7 +496,7 @@ try {
   const pc = await evaluate(`({width:innerWidth,scroll:document.documentElement.scrollWidth,sw:!!navigator.serviceWorker.controller,
     avatar:document.querySelector('.calendar-event .avatar').getBoundingClientRect().width,
     names:getComputedStyle(document.querySelector('.calendar-event .event-name')).display!=='none'})`);
-  check(pc.avatar === 32 && pc.names, 'PCのアイコンサイズか人物名表示が不正です。');
+  check(pc.avatar >= 28 && !pc.names, 'PC正方形カレンダーのアイコン表示が不正です。');
   mkdirSync('test-artifacts', { recursive: true });
   writeFileSync('test-artifacts/pc.png', Buffer.from((await command('Page.captureScreenshot', { format: 'png' })).data, 'base64'));
   await command('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
@@ -511,6 +516,8 @@ try {
     input.dispatchEvent(new Event('change',{bubbles:true}));
     document.querySelector('[data-tab=calendar]').click();})()`);
   await until(() => evaluate('document.documentElement.lang === "en"'), '更新前の英語設定');
+  await evaluate(`(()=>{const theme=document.querySelector('#theme-choice');theme.value='dark';theme.dispatchEvent(new Event('change'));})()`);
+  await until(()=>evaluate('document.documentElement.dataset.theme==="dark"'),'更新前のダーク設定');
   serveUpdatedWorker = true;
   await evaluate(`(async()=>{const registration=await navigator.serviceWorker.getRegistration();
     await registration.update();})()`);
@@ -569,15 +576,16 @@ try {
   check(imagesAfterUpdate === 1, 'Service Worker更新でプロフィール画像が失われました。');
   const settingsAfterUpdate = await evaluate(`new Promise(resolve=>{const r=indexedDB.open('birthday-circle-local');
     r.onsuccess=()=>{const tx=r.result.transaction('settings');const notices=tx.objectStore('settings').get('notifications');
-      const language=tx.objectStore('settings').get('language');tx.oncomplete=()=>resolve({seven:notices.result.value.seven,
-        language:language.result.value,htmlLang:document.documentElement.lang});};})`);
-  check(settingsAfterUpdate.seven === false && settingsAfterUpdate.language === 'en' && settingsAfterUpdate.htmlLang === 'en',
+      const language=tx.objectStore('settings').get('language'),theme=tx.objectStore('settings').get('appearance');tx.oncomplete=()=>resolve({seven:notices.result.value.seven,
+        language:language.result.value,htmlLang:document.documentElement.lang,theme:theme.result.value.theme});};})`);
+  check(settingsAfterUpdate.seven === false && settingsAfterUpdate.language === 'en' && settingsAfterUpdate.htmlLang === 'en' && settingsAfterUpdate.theme==='dark',
     'Service Worker更新後に通知設定か言語設定が失われました。');
   await command('Network.emulateNetworkConditions', { offline: true, latency: 0, downloadThroughput: 0, uploadThroughput: 0 });
   await command('Page.reload');
   await until(() => evaluate('document.querySelector("#person-rail .avatar-person") !== null'), 'オフライン起動');
+  check(await evaluate('document.documentElement.dataset.theme==="dark"'),'オフラインでもダーク設定保持');
   check(await evaluate(`(async()=>{const images=[...document.querySelectorAll('.calendar-event img')];
-    await Promise.all(images.map(img=>img.decode()));return images.length===2 && images.every(img=>img.naturalWidth===512);})()`),
+    await Promise.all(images.map(img=>img.decode()));return images.length===1 && images.every(img=>img.naturalWidth===512);})()`),
     'オフラインでカレンダーのプロフィール画像を表示できません。');
   check(await evaluate(`(()=>{document.querySelector('[data-tab=calendar]').click();document.querySelector('.day-open').click();
     document.querySelector('#day-add').click();const valid=document.querySelector('#person-dialog').open
@@ -595,7 +603,7 @@ try {
     notifications: 1, formSizes, cropMobile, cropPreview, cropGesture, image, replacement, imagesAfterDelete,
     restoredName, restoredImages, offline: true, pc, mobile, calendarFilter,
     mobileViews, distribution, orientation, english, peopleAfterUpdate, imagesAfterUpdate, cachesAfterUpdate,
-    calendarAvatars,calendarOverflow,calendarReuse,calendarReplacement,calendarGeometry,calendarRegistration,calendarInteractions,pcDateRegistration,
+    calendarAvatars,calendarOverflow,calendarReuse,calendarReplacement,calendarGeometry,calendarRegistration,calendarInteractions,pcDateRegistration,yoribi,
     waitingCache, settingsAfterUpdate, updateReloads,
     consoleErrors: errors.length, externalRequests: externalRequests.length }));
 } finally {

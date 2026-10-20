@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { APP_VERSION } from '../src/version.js';
 import { verifyCalendarRegistration } from './calendar-registration-smoke.mjs';
 import { verifyCalendarInteractions } from './calendar-interaction-smoke.mjs';
+import { verifyYoribiUI } from './yoribi-smoke.mjs';
 
 // 公開版の確認、または旧配布物→現在のdistの更新確認。実データには触れない。
 const option = (name) => process.argv.find((arg) => arg.startsWith(`--${name}=`))?.slice(name.length + 3);
@@ -74,6 +75,10 @@ try {
     const remove=indexedDB.deleteDatabase.bind(indexedDB);indexedDB.deleteDatabase=function(name){window.__dataResetCalls.push('delete:'+name);return remove(name);};` });
   await command('Page.navigate', { url:baseUrl });
   await until(() => evaluate('Boolean(document.querySelector("#app-version")?.textContent && navigator.serviceWorker.controller)'), 'App startup timeout');
+  let yoribiFlow = null;
+  if (publicUrl && option('check-yoribi') === 'true') {
+    yoribiFlow = await verifyYoribiUI({ evaluate, until, check, command });
+  }
   let registrationFlow = null;
   // 明示指定時だけ、公開版の一時プロファイルに架空データを登録して操作検証する。
   if (publicUrl && option('check-registration') === 'true') {
@@ -89,7 +94,9 @@ try {
   if (previousDist) {
     const previousVersion = await evaluate('document.querySelector("#app-version").textContent');
     const expectedPrevious = readFileSync(join(previousDist, 'sw.js'), 'utf8').match(/const APP_VERSION = '([^']+)'/)?.[1];
-    check(previousVersion === expectedPrevious && previousVersion !== APP_VERSION, `Unexpected prior version: ${previousVersion}`);
+    const expectedCache = readFileSync(join(currentRoot, 'sw.js'), 'utf8').match(/CACHE_NAME = CACHE_PREFIX \+ '([^']+)'/)?.[1];
+    const previousCache = readFileSync(join(previousDist, 'sw.js'), 'utf8').match(/CACHE_NAME = CACHE_PREFIX \+ '([^']+)'/)?.[1];
+    check(previousVersion === expectedPrevious && expectedCache && expectedCache !== previousCache, `Unexpected prior build: ${previousVersion}`);
     await evaluate(`(async()=>{const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Tokyo',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());
       const field=key=>parts.find(part=>part.type===key).value;const today=field('year')+'-'+field('month')+'-'+field('day');
       const canvas=document.createElement('canvas');canvas.width=512;canvas.height=512;canvas.getContext('2d').fillRect(0,0,512,512);
@@ -117,7 +124,11 @@ try {
     await until(() => evaluate('!document.querySelector("#update-banner").hidden'), 'Update reminder did not return');
     const beforeNavigations = navigations;
     await evaluate('document.querySelector("#update-app").click()');
-    await until(() => evaluate(`document.querySelector('#app-version')?.textContent === '${APP_VERSION}' && document.querySelector('#person-rail .avatar-person') !== null`), 'Upgrade timeout');
+    // 旧workerへ繰り返しメッセージを送らず、まずcontrollerchange由来のnavigationを待つ。
+    try { await until(() => navigations > beforeNavigations && evaluate(`(async()=>{if(!document.querySelector('#person-rail .avatar-person'))return false;
+      const info=await new Promise(done=>{const c=new MessageChannel();c.port1.onmessage=e=>{c.port1.close();done(e.data);};navigator.serviceWorker.controller.postMessage({type:'CACHE_NAME'},[c.port2]);});
+      return info.cacheName.endsWith('${expectedCache}')&&document.querySelector('#app-version')?.textContent==='${APP_VERSION}';})()`), 'Upgrade timeout'); }
+    catch(error) { throw new Error(JSON.stringify({message:error.message,expectedCache,errors,navigations,beforeNavigations,state:await evaluate(`(async()=>{const r=await navigator.serviceWorker.getRegistration();const info=await new Promise(done=>{const c=new MessageChannel();c.port1.onmessage=e=>done(e.data);navigator.serviceWorker.controller.postMessage({type:'CACHE_NAME'},[c.port2]);});return {title:document.title,brand:document.querySelector('.brand strong').textContent,info,waiting:r.waiting?.state,active:r.active?.state,disabled:document.querySelector('#update-app').disabled,hidden:document.querySelector('#update-banner').hidden,message:document.querySelector('#update-message').textContent};})()`)})); }
     await pause(500);
     const after = await evaluate(snapshotExpression);
     check(JSON.stringify(before) === JSON.stringify(after), 'Data changed during version upgrade');
@@ -142,7 +153,7 @@ try {
     `Version mismatch: ${JSON.stringify(published)}`);
   check(published.updateControls && published.transferGuide && published.statuses.every((status) => status === 200), 'Published UI or assets missing');
   if (previousDist) {
-    check(published.calendarImages === 2 && published.calendarMarks.includes('🎂') && published.calendarMarks.includes('🎉'), 'Calendar icons missing after upgrade');
+    check(published.calendarImages === 1 && published.calendarMarks.includes('🎂'), 'Calendar icons missing after upgrade');
     await command('Network.emulateNetworkConditions', { offline:true, latency:0, downloadThroughput:0, uploadThroughput:0 });
     await command('Page.reload');
     await until(() => evaluate(`document.querySelector('#app-version')?.textContent === '${APP_VERSION}' && document.querySelector('#person-rail .avatar-person') !== null`), 'Offline upgrade startup failed');
@@ -150,7 +161,7 @@ try {
   const externalRequests = requests.filter((url) => !url.startsWith(baseUrl) && !url.startsWith('blob:') && !url.startsWith('data:'));
   check(externalRequests.length === 0, `Unexpected requests: ${JSON.stringify(externalRequests)}`);
   check(errors.length === 0, `Browser errors: ${JSON.stringify(errors)}`);
-  console.log(JSON.stringify({ baseUrl, upgrade, published, registrationFlow, interactionFlow, offlineAfterUpgrade:!!previousDist, consoleErrors:errors.length, externalRequests:externalRequests.length }));
+  console.log(JSON.stringify({ baseUrl, upgrade, published, yoribiFlow, registrationFlow, interactionFlow, offlineAfterUpgrade:!!previousDist, consoleErrors:errors.length, externalRequests:externalRequests.length }));
 } finally {
   socket?.close(); child?.kill(); server?.close();
   if (profile.startsWith(resolve(tmpdir()) + sep) && profile.includes('birthday-release-smoke-')) {

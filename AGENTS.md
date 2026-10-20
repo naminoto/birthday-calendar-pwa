@@ -1,5 +1,9 @@
 # ローカルPWA版の開発ルール
 
+- 表示名はYoribi（ヨリビ）。互換性のためbirthday-circle系のDB名・保存キー・SW scope・公開URLはリブランドを理由に変更しません。
+- 正式アイコンは`yoribi-icon.png`由来の固定PNGです。別デザインへの再描画やカラー変更設定は追加しません。`scripts/generate-icons.mjs`で背景余白・maskable安全領域・元絵柄保持を検証して再生成します。
+- テーマは既存settings storeのappearanceキーへ保存し、ZIP v1の任意項目として検証・復元します。旧ZIPはライトへフォールバックし、DB v3は変更しません。
+
 親のSpring Bootリポジトリ内で作業するときは、親ルートの `AGENTS.md` を先に読み、そのルールと矛盾しない範囲で以下を守ります。PWA専用リポジトリとしてこのフォルダだけを切り出した場合は、このファイルがルートの開発ルールです。
 
 - IndexedDBの人物・画像・設定・通知は利用者データです。アプリ更新やService Worker更新で削除しません。

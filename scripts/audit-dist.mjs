@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('../dist/', import.meta.url));
 const required = ['index.html', 'manifest.webmanifest', 'sw.js',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png',
-  'icons/apple-touch-icon.png'];
+  'icons/apple-touch-icon.png','icons/favicon-48.png'];
 const textExtensions = /\.(?:html|js|css|webmanifest)$/;
 const forbidden = [
   ['秘密鍵', /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/],
@@ -49,9 +49,9 @@ assert(manifest.id === './' && manifest.start_url === './' && manifest.scope ===
   'manifestの相対パス/インストール設定が不正です。');
 const icons = new Map(manifest.icons.map((icon) => [icon.src, icon]));
 for (const [name, size] of [['icon-192.png', 192], ['icon-512.png', 512],
-  ['icon-maskable-512.png', 512]]) {
+  ['icon-maskable-512.png', 512],['apple-touch-icon.png',180],['favicon-48.png',48]]) {
   const src = `./icons/${name}`;
-  assert(icons.get(src)?.sizes === `${size}x${size}`, `${name}のmanifest記載が不正です。`);
+  if(!['apple-touch-icon.png','favicon-48.png'].includes(name)) assert(icons.get(src)?.sizes === `${size}x${size}`, `${name}のmanifest記載が不正です。`);
   const png = await readFile(join(root, 'icons', name));
   assert(png.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
     && png.readUInt32BE(16) === size && png.readUInt32BE(20) === size,

@@ -2,12 +2,14 @@ import { CATEGORIES, ANNIVERSARY_TYPES } from './model.js';
 
 const messages = {
   ja: {
-    skip:'本文へ移動', tagline:'端末内だけの誕生日ノート', bell:'通知を開く', navigation:'画面切り替え',
+    appName:'Yoribi', appTitle:'Yoribi（ヨリビ）', appearanceTitle:'外観・言語', appInfo:'アプリ情報・更新',
+    theme:'テーマ', theme_light:'ライト', theme_dark:'ダーク', theme_system:'端末の設定に合わせる',
+    skip:'本文へ移動', tagline:'大切な人の、大切な日をそっとそばに。', bell:'通知を開く', navigation:'画面切り替え',
     updateAvailable:'アップデートがあります。データは端末に残ります。', updateNow:'更新する', updateLater:'あとで',
     updating:'更新中です…', updateWait:'更新の準備ができませんでした。後ほど再試行してください。',
     updateUnsaved:'編集中の内容は未保存です。更新しますか？',
     home:'ホーム', calendar:'カレンダー', people:'人物', birthdays:'誕生日', settings:'設定',
-    heroTitle:'大切な日の、すぐそばに。', heroText:'あなたの人物と記念日は、この端末の中だけに保存されます。',
+    heroTitle:'大切な人の、大切な日をそっとそばに。', heroText:'あなたの人物と記念日は、この端末の中だけに保存されます。',
     addPerson:'＋ 人物を追加', addShort:'＋ 追加', upcoming:'もうすぐ誕生日', within7:'7日以内', within30:'30日以内',
     otherUpcoming:'その他の近日記念日', within14:'14日以内', calendarTitle:'誕生日・記念日カレンダー', thisMonth:'今月へ',
     eventType:'予定種類', anniversary:'記念日', anniversaryName:'記念日の名称', anniversaryExample:'例：出会った日',
@@ -33,7 +35,7 @@ const messages = {
     transferRoutes:'移行する端末の組み合わせ', devicePhone:'スマホ', devicePc:'PC',
     transferStepExport:'移行元の{source}で「この端末のデータを書き出す」を押し、ファイルを保存します。',
     transferStepSend:'保存したファイルを移行先の{destination}へ安全な方法で渡します。ファイルは暗号化されていません。',
-    transferStepOpen:'移行先の{destination}で同じBirthday Circleの公開URLを開きます。',
+    transferStepOpen:'移行先の{destination}で同じYoribiの公開URLを開きます。',
     transferStepBackup:'移行先に残したいデータがある場合は、先に「この端末のデータを書き出す」で退避します。',
     transferStepImport:'移行先で「受け取ったファイルを選ぶ」を押し、表示された内容を確認します。',
     transferStepConfirm:'置き換えを確認すると、移行先のデータが移行元の保存時点の状態になります。',
@@ -99,6 +101,8 @@ const messages = {
     workerFailed:'Service Workerを登録できませんでした。',
   },
   en: {
+    appName:'Yoribi', appTitle:'Yoribi', appearanceTitle:'Appearance & language', appInfo:'About & updates',
+    theme:'Theme', theme_light:'Light', theme_dark:'Dark', theme_system:'Use device setting',
     skip:'Skip to content', tagline:'A birthday notebook stored on this device', bell:'Open notifications', navigation:'Navigation',
     updateAvailable:'An update is available. Your data will stay on this device.', updateNow:'Update', updateLater:'Later',
     updating:'Updating…', updateWait:'The update is not ready. Please try again later.',
@@ -130,7 +134,7 @@ const messages = {
     transferRoutes:'Device transfer route', devicePhone:'phone', devicePc:'PC',
     transferStepExport:'On the source {source}, select “Export this device’s data” and save the file.',
     transferStepSend:'Move the saved file securely to the destination {destination}. The file is not encrypted.',
-    transferStepOpen:'On the destination {destination}, open the same published Birthday Circle URL.',
+    transferStepOpen:'On the destination {destination}, open the same published Yoribi URL.',
     transferStepBackup:'If you need to keep existing destination data, export it first using “Export this device’s data”.',
     transferStepImport:'On the destination, select “Choose received file” and review its contents.',
     transferStepConfirm:'After confirmation, destination data matches the source at the time the file was saved.',
@@ -211,6 +215,7 @@ export function dayLabel(day) { return language === 'ja' ? `${day}日` : String(
 
 // 旧データと例外型はそのまま保つ。英語画面で既存の検証エラーだけ翻訳する。
 const errorEnglish = {
+  '外観設定が正しくありません。':'Invalid appearance settings.',
   '表示名は1〜100文字で入力してください。':'Enter a display name of 1–100 characters.',
   'カテゴリが正しくありません。':'Invalid category.',
   'X usernameの形式が正しくありません。':'Invalid X username.',
@@ -281,6 +286,7 @@ export function errorText(error) {
 
 // HTMLの既存構造を変えずに、見出し・ラベル・説明・ariaを同じ辞書から更新する。
 const staticText = [
+  ['.brand strong','appName'],['#theme-label','theme'],
   ['.skip','skip'],['.brand small','tagline'],['.hero h1','heroTitle'],['.hero > p:not(.eyebrow)','heroText'],
   ['#update-message','updateAvailable'],['#update-later','updateLater'],['#update-app','updateNow'],
   ['#home-add','addPerson'],
@@ -291,14 +297,10 @@ const staticText = [
   ['#view-people .page-heading h1','personList'],['#people-add','addShort'],
   ['#view-birthdays .page-heading h1','birthdayList'],['#view-birthdays > .help','birthdayHelp'],
   ['#view-settings .page-heading h1','settingsTitle'],
-  ['#view-settings .setting-card:nth-child(2) h2','language'],
-  ['#view-settings .setting-card:nth-child(2) .help','languageHelp'],
-  ['#view-settings .setting-card:nth-child(3) h2','noticeTitle'],
-  ['#view-settings .setting-card:nth-child(3) .help','noticeHelp'],
-  ['#view-settings .setting-card:nth-child(4) h2','backupTitle'],
-  ['#view-settings .setting-card:nth-child(4) .help','backupHelp'],
-  ['#view-settings .setting-card:nth-child(5) h2','storageTitle'],
-  ['#view-settings .setting-card:nth-child(5) .help','storageHelp'],
+  ['#language-settings h2','language'],['#language-settings .help','languageHelp'],
+  ['#notice-settings h2','noticeTitle'],['#notice-settings .help','noticeHelp'],
+  ['#backup-settings h2','backupTitle'],['#backup-settings > .help','backupHelp'],
+  ['#storage-settings h2','storageTitle'],['#storage-settings .help','storageHelp'],
   ['#export-backup','exportZip'],['#clear-cache','clearCache'],['.privacy-note','privacy'],
   ['#transfer-title','transferTitle'],['#transfer-intro','transferIntro'],
   ['#transfer-not-sync','transferNotSync'],['#transfer-replace','transferReplace'],
@@ -325,6 +327,7 @@ const staticText = [
   ['#crop-cancel','cancel'],['#crop-confirm','confirm'],
 ];
 const staticAttributes = [
+  ['#header-settings','aria-label','settings'],
   ['#bell','aria-label','bell'],['#month-prev','aria-label','prevMonth'],['#month-next','aria-label','nextMonth'],
   ['#calendar-grid','aria-label','grid'],['.bottom-nav','aria-label','navigation'],
   ['#language-choice','aria-label','language'],
@@ -334,6 +337,9 @@ const staticAttributes = [
 ];
 
 export function applyStaticTranslations() {
+  document.title=t('appTitle');
+  for (const node of document.querySelectorAll('[data-section-key]')) node.textContent=t(node.dataset.sectionKey);
+  for (const option of document.querySelectorAll('#theme-choice option')) option.textContent=t(`theme_${option.value}`);
   for (const [selector, key] of staticText) {
     const node = document.querySelector(selector); if (!node) continue;
     if (node.children.length) {

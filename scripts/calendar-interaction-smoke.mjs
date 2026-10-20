@@ -7,7 +7,7 @@ export async function verifyCalendarInteractions({ evaluate, until, check, comma
     for(let n=0;n<Math.abs(diff);n++)document.querySelector(diff>0?'#month-next':'#month-prev').click();})()`);
   const reload=async()=>{await command('Page.reload');await until(()=>evaluate('document.querySelector("#summary-grid")?.children.length===4'),'再起動');await goMonth();};
   const measure=()=>evaluate(`(()=>{const cells=[...document.querySelectorAll('.day-cell')],cell=document.querySelector('[data-date="2028-05-10"]');return {
-    grid:document.querySelector('#calendar-grid').getBoundingClientRect().height,heights:[...new Set(cells.map(c=>c.getBoundingClientRect().height))],
+    grid:document.querySelector('#calendar-grid').getBoundingClientRect().height,heights:[...new Set(cells.map(c=>c.getBoundingClientRect().height))],square:cells.every(c=>Math.abs(c.getBoundingClientRect().width-c.getBoundingClientRect().height)<1),
     visible:cell.querySelectorAll('.calendar-event').length,more:cell.querySelector('.more')?.textContent||'',scroll:document.documentElement.scrollWidth};})()`);
   const emptyCheck=()=>evaluate(`(()=>{const rail=document.querySelector('#person-rail .empty'),list=document.querySelector('#people-list .empty');
     document.querySelector('[data-tab=people]').click();const listBox=list.getBoundingClientRect(),container=document.querySelector('#people-list').getBoundingClientRect();
@@ -20,7 +20,7 @@ export async function verifyCalendarInteractions({ evaluate, until, check, comma
     await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await sleep(50);};
   await checkPC();
   await evaluate(`window.__interactionIds=[];window.__interactionAnn=[crypto.randomUUID(),crypto.randomUUID(),crypto.randomUUID()];`);
-  for(const count of [1,3,10]) {
+  for(const count of [1,2,10]) {
     await evaluate(`(async()=>{const r=indexedDB.open('birthday-circle-local');const db=await new Promise(done=>r.onsuccess=()=>done(r.result));const tx=db.transaction('people','readwrite');
       while(window.__interactionIds.length<${count}){const index=window.__interactionIds.length,id=crypto.randomUUID();window.__interactionIds.push(id);
         const time=new Date().toISOString();tx.objectStore('people').put({id,displayName:'操作テスト'+index,category:index?'PET':'OTHER',seriesName:'',memo:'',username:null,xProfileUrl:null,links:[],hasImage:false,createdAt:time,updatedAt:time,
@@ -36,10 +36,10 @@ export async function verifyCalendarInteractions({ evaluate, until, check, comma
     heights.push(await measure());
     await checkPC();
   }
-  check(heights.every(m=>m.grid===heights[0].grid&&m.heights.length===1&&m.heights[0]===156&&m.scroll===390),'0/1/3/10件でカレンダーの高さが変化');
-  check(heights[3].visible===2&&heights[3].more==='+8','スマホ省略数');
-  check(pcHeights.every(m=>m.grid===pcHeights[0].grid&&m.heights.length===1&&m.heights[0]===208)
-    &&pcHeights[3].visible===3&&pcHeights[3].more==='+7','PCの0/1/3/10件で高さ固定・省略数');
+  check(heights.every(m=>m.grid===heights[0].grid&&m.square&&m.scroll===390),'0/1/2/10件で正方形・高さ不変');
+  check(heights[3].visible===1&&heights[3].more==='+9'&&heights[2].more==='+1','スマホ省略数');
+  check(pcHeights.every(m=>m.grid===pcHeights[0].grid&&m.square)
+    &&pcHeights[3].visible===1&&pcHeights[3].more==='+9','PC正方形・省略数');
   await evaluate(`document.querySelector('[data-date="2028-05-10"] .more').click()`);
   check(await evaluate('document.querySelectorAll("#detail-body .item-row").length===10'),'省略分の全予定');
   await evaluate('document.querySelector("#detail-dialog [data-close]").click()');
@@ -50,6 +50,7 @@ export async function verifyCalendarInteractions({ evaluate, until, check, comma
   const selector=(key)=>`.calendar-event[data-person-id="${main.id}"][data-event-key="${key}"]`;
   await evaluate(`window.__pointerTrace=[];for(const type of ['pointerdown','pointermove','pointerup','pointercancel'])document.addEventListener(type,event=>window.__pointerTrace.push({type:event.type,pointer:event.pointerType,trusted:event.isTrusted}),true);`);
   async function drag(key, date, touch=false, mode='normal') {
+    await sleep(350);
     const points=await evaluate(`(()=>{const item=document.querySelector(${JSON.stringify(selector(key))});item.scrollIntoView({block:'center'});const rect=item.getBoundingClientRect();
       const target=document.querySelector('[data-date="${date}"]').getBoundingClientRect(),source=item.closest('.day-cell').getBoundingClientRect();return {start:{x:rect.left+rect.width/2,y:rect.top+rect.height/2},end:{x:target.left+target.width/2,y:target.top+rect.top-source.top+rect.height/2}};})()`);
     if(mode==='invalid')points.end={x:2,y:2};
@@ -80,6 +81,7 @@ export async function verifyCalendarInteractions({ evaluate, until, check, comma
   await until(()=>evaluate('!document.querySelector("#move-dialog").open'),'誕生日保存');
   let updated=(await records()).find(p=>p.id===main.id);
   check(updated.anniversaries[0].day===11&&updated.anniversaries[0].year===2000,'誕生日移動・生年');
+  await evaluate(`document.querySelector('#calendar-event-type').value='ANNIVERSARY';document.querySelector('#calendar-event-type').dispatchEvent(new Event('change'))`);
   await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await sleep(50);
   check(await drag(main.anniversaries[1].id,'2028-05-20',true)===1,'タッチドラッグの移動先強調');
   check(await evaluate('document.querySelector("#move-dialog").open'),'タッチdropの確認');
@@ -90,6 +92,7 @@ export async function verifyCalendarInteractions({ evaluate, until, check, comma
   await drag(main.anniversaries[2].id,'2028-05-14');await evaluate('document.querySelector("#move-confirm").click()');
   await until(()=>evaluate('!document.querySelector("#move-dialog").open'),'単発記念日保存');
   check((await records()).find(p=>p.id===main.id).anniversaries[2].day===14,'単発記念日移動');
+  await evaluate(`document.querySelector('#calendar-event-type').value='ALL';document.querySelector('#calendar-event-type').dispatchEvent(new Event('change'))`);
   const stable=JSON.stringify(await records());
   await drag('BIRTHDAY','2028-05-11');check(!await evaluate('document.querySelector("#move-dialog").open'),'同日dropで確認');
   await drag('BIRTHDAY','2028-05-12',false,'invalid');check(!await evaluate('document.querySelector("#move-dialog").open'),'無効dropで確認');
@@ -97,6 +100,7 @@ export async function verifyCalendarInteractions({ evaluate, until, check, comma
   await drag('BIRTHDAY','2028-05-12',true,'scroll');check(!await evaluate('document.querySelector("#move-dialog").open'),'長押し前移動はドラッグしない');
   check(JSON.stringify(await records())===stable,'無効操作でデータ変更');
   await drag('BIRTHDAY','2028-05-15');
+  check(await evaluate('document.querySelector("#move-dialog").open'),'保存失敗検証のdrop確認が開かない');
   await evaluate(`(()=>{const original=IDBDatabase.prototype.transaction;IDBDatabase.prototype.transaction=function(stores,mode,...args){const tx=original.call(this,stores,mode,...args);
     if(mode==='readwrite'&&[...tx.objectStoreNames].includes('people')){IDBDatabase.prototype.transaction=original;queueMicrotask(()=>tx.abort());}return tx;};document.querySelector('#move-confirm').click();})()`);
   await until(()=>evaluate('!document.querySelector("#move-error").hidden'),'保存失敗の案内');
@@ -130,7 +134,7 @@ export async function verifyCalendarInteractions({ evaluate, until, check, comma
   await evaluate('document.querySelector("#clear-selection").click()');
   await command('Emulation.clearDeviceMetricsOverride');
   await evaluate(`document.querySelector('#calendar-category').value='ALL';document.querySelector('#calendar-category').dispatchEvent(new Event('change'))`);
-  const pc=await measure();check(pc.heights.length===1&&pc.heights[0]===208&&pc.visible===3,'PC固定高さ・3予定');
+  const pc=await measure();check(pc.square&&pc.visible===1,'PC正方形・1予定');
   const trace=await evaluate('window.__pointerTrace');
   for(const pointer of ['mouse','touch'])for(const type of ['pointerdown','pointermove','pointerup'])check(trace.some(e=>e.type===type&&e.pointer===pointer&&e.trusted),'実Pointer Events '+pointer+' '+type);
   // fixtureだけを削除。利用者DB初期化の実装は一切追加しない。

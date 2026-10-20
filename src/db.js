@@ -1,4 +1,5 @@
 import { DEFAULT_SETTINGS, birthdayOf, normalizePerson } from './model.js';
+import { normalizeAppearance } from './appearance.js';
 
 export const DB_NAME = 'birthday-circle-local';
 export const DB_VERSION = 3;
@@ -85,6 +86,16 @@ export async function saveSettings(db, settings) {
 }
 
 // 言語は既存settings storeの別キー。IndexedDBのversionや人物データは変更しない。
+export async function loadAppearance(db) {
+  return normalizeAppearance((await get(db, 'settings', 'appearance'))?.value);
+}
+export async function saveAppearance(db, value) {
+  const normalized = normalizeAppearance(value);
+  const tx = db.transaction('settings', 'readwrite');
+  tx.objectStore('settings').put({ key:'appearance', value:normalized });
+  await completed(tx);
+}
+
 export async function loadLanguage(db) {
   return (await get(db, 'settings', 'language'))?.value === 'en' ? 'en' : 'ja';
 }
@@ -166,12 +177,14 @@ export async function markAllRead(db, now = new Date().toISOString()) {
 
 // 復元時も4 storeを単一transactionに入れ、途中で失敗した場合は旧データへロールバック。
 export async function replaceAllData(db, snapshot) {
+  const appearance = normalizeAppearance(snapshot.appearance);
   const tx = db.transaction(STORES, 'readwrite');
   for (const name of STORES) tx.objectStore(name).clear();
   for (const person of snapshot.people) tx.objectStore('people').put(person);
   for (const image of snapshot.images) tx.objectStore('images').put(image);
   tx.objectStore('settings').put({ key: 'notifications', value: snapshot.settings });
   tx.objectStore('settings').put({ key: 'language', value: snapshot.language === 'en' ? 'en' : 'ja' });
+  tx.objectStore('settings').put({ key:'appearance', value:appearance });
   for (const notice of snapshot.notifications) tx.objectStore('notifications').put(notice);
   await completed(tx);
 }

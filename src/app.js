@@ -1,5 +1,6 @@
 import './style.css';
 import './crop.css';
+import './yoribi.css';
 import { openDatabase, all, get, savePerson, deletePerson, loadSettings, saveSettings,
   markNotificationRead, markAllRead, storageSummary, loadLanguage, saveLanguage } from './db.js';
 import { CATEGORIES, birthdayOf, birthdayRows, anniversaryRows, anniversaryYears,
@@ -14,10 +15,15 @@ import { setupUpdates } from './update.js';
 import { APP_VERSION } from './version.js';
 import { eventKey, movedPerson } from './calendar-move.js';
 import { setupCalendarGestures } from './calendar-gestures.js';
+import { loadAppearance, saveAppearance } from './db.js';
+import { DEFAULT_APPEARANCE, applyAppearance } from './appearance.js';
+import { setupSettingsSections, setupOutlineIcons } from './settings-ui.js';
 
 const $ = (id) => document.getElementById(id);
 let avatarEditor, updates, gestures, pendingMove = null, moveSaving = false;
 const compactCalendar = window.matchMedia('(max-width:520px)');
+const systemTheme = window.matchMedia('(prefers-color-scheme: dark)');
+let appearance = { ...DEFAULT_APPEARANCE };
 const state = { db: null, people: [], images: new Map(), notices: [], settings: null,
   today: tokyoToday(), month: null, selectedPersonId: null, detailPersonId: null, detailDay:null, formCalendarDate:null,
   railFilter: 'all', transferRoute: 'phone-pc', preparedBackup: null };
@@ -148,7 +154,7 @@ function renderCalendar() {
     const dayButton = el('button', 'day-number day-open', day); dayButton.type = 'button';
     dayButton.setAttribute('aria-label', t('dayAria', { month, day, count:events.length }));
     cell.append(dayButton); const pics = el('div', 'day-avatars');
-    const visibleLimit = compactCalendar.matches ? 2 : 3;
+    const visibleLimit = 1;
     for (const entry of events.slice(0, visibleLimit)) {
       const birthday = entry.ann.type === 'BIRTHDAY';
       const item = el('button', `calendar-event ${birthday ? 'birthday-event' : 'anniversary-event'}`);
@@ -467,6 +473,7 @@ function renderTransferGuide() {
     button.setAttribute('aria-pressed', String(button.dataset.transferRoute === state.transferRoute));
 }
 function renderSettings() {
+  $('theme-choice').value = appearance.theme;
   const form = $('notification-settings');
   for (const [key, value] of Object.entries(state.settings ?? {})) if (form.elements[key]) form.elements[key].checked = value;
   renderTransferGuide();
@@ -513,6 +520,7 @@ async function previewRestore(file) {
       if (!confirm(t('restoreConfirm'))) return;
       if (prompt(t('restorePrompt')) !== t('restoreWord')) return;
       try { await restoreBackup(state.db, prepared); state.preparedBackup = null; host.hidden = true;
+        appearance = await loadAppearance(state.db); applyAppearance(appearance);
         setLanguage(await loadLanguage(state.db)); $('language-choice').value = currentLanguage();
         applyStaticTranslations(); avatarEditor.refreshLanguage(); await refresh();
         await renderStorageStats(); updates?.refreshLanguage(); toast(t('restoreDone')); }
@@ -539,6 +547,13 @@ function initOptions() {
 }
 
 function bindEvents() {
+  setupSettingsSections(t); setupOutlineIcons();
+  $('header-settings').onclick = () => switchTab('settings');
+  $('theme-choice').onchange = async (event) => {
+    try { const next = { theme:event.target.value }; await saveAppearance(state.db,next); appearance=next; applyAppearance(appearance); }
+    catch(error) { $('theme-choice').value=appearance.theme; toast(errorText(error)); }
+  };
+  systemTheme.addEventListener('change', () => applyAppearance(appearance, systemTheme.matches));
   avatarEditor = setupAvatarEditor();
   gestures = setupCalendarGestures({ grid:$('calendar-grid'),
     roots:[$('calendar-grid'), $('person-rail'), $('people-list')], onMove:requestEventMove, onSelect:selectPerson });
@@ -634,6 +649,7 @@ function bindEvents() {
 async function boot() {
   try {
     initOptions(); bindEvents(); state.db = await openDatabase();
+    appearance = await loadAppearance(state.db); applyAppearance(appearance);
     setLanguage(await loadLanguage(state.db)); $('language-choice').value = currentLanguage();
     $('app-version').textContent = APP_VERSION; applyStaticTranslations(); await refresh();
     switchTab(location.hash.slice(1) || 'home');

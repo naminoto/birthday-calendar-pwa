@@ -152,16 +152,26 @@ export async function savePerson(db, input, { image = null, removeImage = false 
 }
 
 export async function deletePerson(db, personId) {
-  const existing = await get(db, 'people', personId);
-  if (!existing) throw new Error('削除対象の人物が見つかりません。');
-  const notices = await all(db, 'notifications');
+  return deletePeople(db,[personId]);
+}
+
+// 存在確認も同じtransactionで行う。欠落・途中失敗なら画像・通知を含め全件戻す。
+export async function deletePeople(db, personIds) {
+  if(!Array.isArray(personIds)||!personIds.length||personIds.some(id=>typeof id!=='string'||!id))throw new Error('削除対象の人物が見つかりません。');
+  const ids=new Set(personIds);
   const tx = db.transaction(['people', 'images', 'notifications'], 'readwrite');
-  tx.objectStore('people').delete(personId);
-  tx.objectStore('images').delete(personId);
-  for (const notice of notices) {
-    if (notice.personId === personId) tx.objectStore('notifications').delete(notice.id);
+  const done=completed(tx);let invalid;
+  for(const id of ids){
+    tx.objectStore('people').get(id).onsuccess=event=>{
+      if(!event.target.result){invalid=new Error('削除対象の人物が見つかりません。');tx.abort();return;}
+      tx.objectStore('people').delete(id);tx.objectStore('images').delete(id);
+    };
   }
-  await completed(tx);
+  tx.objectStore('notifications').openCursor().onsuccess=event=>{
+    const cursor=event.target.result;if(!cursor)return;
+    if(ids.has(cursor.value.personId))cursor.delete();cursor.continue();
+  };
+  try{await done;}catch(error){throw invalid??error;}
 }
 
 export async function replaceNotifications(db, notices) {

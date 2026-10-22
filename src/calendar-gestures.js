@@ -1,6 +1,6 @@
 // 委譲登録し、ジェスチャー終了時に一時リスナーとghostを回収する。
 // 長押し成立後だけtouchmoveを抑止。長押し前のスワイプはスクロールへ渡す。
-export function setupCalendarGestures({ grid, roots, onMove, onSelect, onReorder, onLeaveList, onCancelList,
+export function setupCalendarGestures({ grid, roots, onMove, onSelect, onMenu, onRailStart, onReorder, onLeaveList, onCancelList, enabled=()=>true,
   document:doc = document, window:win = window }) {
   let gesture = null, suppressed = null;
   const clean = () => {
@@ -17,12 +17,15 @@ export function setupCalendarGestures({ grid, roots, onMove, onSelect, onReorder
     && (!event?.type || ['keydown','pointercancel'].includes(event.type));
     if (gesture?.active) suppressed = { item:gesture.item, until:Date.now()+800 }; clean(); if (restore) onCancelList?.(); };
   const start = (event) => {
+    if(!enabled())return;
     if (gesture) { if (event.pointerId !== gesture.pointerId) cancel(); return; }
     if (event.button !== 0 || event.isPrimary === false) return;
+    if(event.target.closest('.person-menu-trigger'))return;
     const item = event.target.closest('.day-event-row, .calendar-event, .avatar-person, .person-card');
     if (!item) return;
     const list = item.matches('.day-event-row');
-    const calendar = grid.contains(item) || list, touch = event.pointerType !== 'mouse';
+    const rail=item.matches('.avatar-person');
+    const calendar = grid.contains(item) || list || rail, touch = event.pointerType !== 'mouse';
     if (!calendar && !touch) return;
     const abort = new AbortController();
     const current = gesture = { item, calendar, list, touch, from:list ? item.dataset.date : item.closest('.day-cell')?.dataset.date,
@@ -55,15 +58,16 @@ export function setupCalendarGestures({ grid, roots, onMove, onSelect, onReorder
     const arm = () => {
       if (gesture !== current) return;
       current.active = true;
-      if (!calendar) { onSelect(item.dataset.personId); return; }
+      if (!calendar) { if(onMenu)onMenu(item.dataset.personId,item);else onSelect(item.dataset.personId); return; }
       item.classList.add('dragging');
       const ghost = item.cloneNode(true); ghost.classList.add('drag-ghost');
       ghost.classList.remove('dragging', 'insert-before', 'insert-after');
       ghost.setAttribute('aria-hidden', 'true'); ghost.removeAttribute('aria-label'); ghost.tabIndex = -1;
       current.ghost = ghost; doc.body.append(ghost);
       if (list) item.closest('dialog').append(ghost);
-      current.capture = list ? doc.documentElement : item;
+      current.capture = list || rail ? doc.documentElement : item;
       try { current.capture.setPointerCapture(event.pointerId); } catch { /* documentでも追跡 */ }
+      if(rail)onRailStart?.();
       updateTarget(current.x, current.y);
       const scroll = () => {
         if (gesture !== current) return;
@@ -99,7 +103,7 @@ export function setupCalendarGestures({ grid, roots, onMove, onSelect, onReorder
             clean(); return;
           }
           const to = current.target?.dataset.date;
-          const payload = { personId:item.dataset.personId, key:item.dataset.eventKey, from:current.from, to, sourceList:list };
+          const payload = { personId:item.dataset.personId, key:item.dataset.eventKey, from:current.from, to, sourceList:list, sourceRail:rail };
           clean(); if (to && to !== payload.from) onMove(payload); else if (list) onCancelList?.(); return;
         }
       }
@@ -116,6 +120,7 @@ export function setupCalendarGestures({ grid, roots, onMove, onSelect, onReorder
   };
   const menu = (event) => { if (event.target.closest('.day-event-row, .calendar-event, .avatar-person, .person-card')) event.preventDefault(); };
   const key = (event) => {
+    if(!enabled())return;
     const item = event.target.closest('.avatar-person, .person-card');
     if (item && event.shiftKey && event.key === 'Enter') { event.preventDefault(); onSelect(item.dataset.personId); }
   };

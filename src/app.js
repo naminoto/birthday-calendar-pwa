@@ -1,9 +1,13 @@
 import './style.css';
 import './crop.css';
 import './yoribi.css';
-import { openDatabase, all, get, savePerson, deletePerson, loadSettings, saveSettings,
+import './home.css';
+import './fonts.css';
+import './date-fields.css';
+import {setupMonthDay,setupBirthYear} from './date-fields.js';
+import { openDatabase, all, get, savePerson, deletePerson, deletePeople, loadSettings, saveSettings,
   markNotificationRead, markAllRead, storageSummary, loadLanguage, saveLanguage } from './db.js';
-import { CATEGORIES, birthdayOf, birthdayRows, anniversaryRows, anniversaryYears,
+import { CATEGORIES, birthdayOf, birthdayRows, anniversaryYears,
   occurrenceForYear, calendarEvents, filterPeople, tokyoToday } from './model.js';
 import { synchronizeNotifications } from './notifications.js';
 import { setupAvatarEditor } from './avatar-editor.js';
@@ -13,22 +17,27 @@ import { t, setLanguage, currentLanguage, applyStaticTranslations, categoryLabel
   anniversaryLabel, monthLabel, dayLabel, errorText } from './i18n.js';
 import { setupUpdates } from './update.js';
 import { APP_VERSION } from './version.js';
-import { eventKey, movedPerson } from './calendar-move.js';
+import { eventKey, movedPerson, birthdayAssignedPerson } from './calendar-move.js';
+import {setupPersonMenu} from './person-menu.js';
 import { setupCalendarGestures } from './calendar-gestures.js';
 import { loadAppearance, saveAppearance } from './db.js';
 import { DEFAULT_APPEARANCE, applyAppearance } from './appearance.js';
 import { setupSettingsSections, setupOutlineIcons } from './settings-ui.js';
 import { reorderDayEvents } from './db.js';
 import { entryId } from './calendar-order.js';
+import { homeOverview } from './home.js';
+import {RAIL_SORTS,sortedRailPeople} from './rail-management.js';
 
 const $ = (id) => document.getElementById(id);
-let avatarEditor, updates, gestures, pendingMove = null, moveSaving = false;
+let avatarEditor, updates, gestures, personMenu, railMenu, birthDateFields, birthYearFields, pendingMove = null, moveSaving = false;
+let calendarDialogOrigin=null;
 const compactCalendar = window.matchMedia('(max-width:520px)');
 const systemTheme = window.matchMedia('(prefers-color-scheme: dark)');
 let appearance = { ...DEFAULT_APPEARANCE };
 const state = { db: null, people: [], images: new Map(), notices: [], settings: null,
   today: tokyoToday(), month: null, selectedPersonId: null, detailPersonId: null, detailDay:null, formCalendarDate:null,
-  railFilter: 'all', transferRoute: 'phone-pc', preparedBackup: null };
+  railFilter: 'all', transferRoute: 'phone-pc', preparedBackup: null, selectionEvent:null,
+  railSort:'nameAsc',railSortOpen:false,railBulk:false,railSelected:new Set(),railDeleting:false };
 const [todayYear, todayMonth] = state.today.split('-').map(Number);
 state.month = new Date(Date.UTC(todayYear, todayMonth - 1, 1));
 
@@ -72,6 +81,9 @@ async function refresh() {
 }
 
 function switchTab(tab) {
+  personMenu?.close(false);
+  railMenu?.close(false);
+  if(tab!=='calendar'&&state.railBulk&&!state.railDeleting){state.railBulk=false;state.railSelected.clear();$('rail-error').hidden=true;renderCalendar();}
   gestures?.cancel();
   if (!['home', 'calendar', 'people', 'birthdays', 'settings'].includes(tab)) tab = 'home';
   for (const view of document.querySelectorAll('.view')) view.hidden = view.id !== `view-${tab}`;
@@ -95,30 +107,27 @@ function makePersonRow(person, subtitle, right = '') {
 }
 
 function renderHome() {
-  const rows = birthdayRows(state.people, state.today);
-  const thisMonth = Number(state.today.slice(5, 7));
-  const counts = [
-    [t('todayBirthdays'), rows.filter((row) => row.daysUntil === 0).length, t('todaySub')],
-    [t('within7'), rows.filter((row) => row.daysUntil <= 7).length, t('sevenSub')],
-    [t('monthBirthdays'), rows.filter((row) => row.birthday.month === thisMonth).length, t('monthSub')],
-    [t('nextBirthday'), rows[0] ? rows[0].person.displayName : '—', rows[0] ? formatDays(rows[0].daysUntil) : t('noNext')],
-  ];
-  $('summary-grid').replaceChildren(...counts.map(([label, value, sub]) => {
-    const card = el('div', 'summary-card'); card.append(el('span', '', label), el('b', '', value), el('small', '', sub)); return card;
-  }));
-  const upcoming = rows.filter((row) => row.daysUntil <= 30);
-  if (!upcoming.length) empty($('home-upcoming'), t('noUpcoming'));
-  else $('home-upcoming').replaceChildren(...upcoming.map((row) => makePersonRow(row.person,
-    `${t('dateDay', { month:row.birthday.month, day:row.birthday.day })} · ${categoryLabel(row.person.category)}`, formatDays(row.daysUntil))));
-  const others = anniversaryRows(state.people, state.today).filter((row) => row.daysUntil <= 14);
-  if (!others.length) empty($('home-anniversaries'), t('noOtherUpcoming'));
-  else $('home-anniversaries').replaceChildren(...others.map((row) => makePersonRow(row.person,
+  const overview=homeOverview(state.people,state.today);
+  const time=$('home-today-date');time.dateTime=state.today;
+  time.textContent=new Intl.DateTimeFormat(currentLanguage()==='ja'?'ja-JP':'en-US',{
+    month:'short',day:'numeric',weekday:'short',timeZone:'UTC',
+  }).format(new Date(`${state.today}T00:00:00Z`));
+  const show=(id,rows,message)=>$(id).replaceChildren(...(rows.length?rows:[el('p','home-empty',message)]));
+  show('home-today',overview.today.map(entry=>makePersonRow(entry.person,
+    entry.ann.type==='BIRTHDAY'?t('birthday'):anniversaryText(entry.ann,entry.date))),t('noTodayEvents'));
+  const birthdayRow=row=>makePersonRow(row.person,
+    t('dateDay',{month:Number(row.nextDate.slice(5,7)),day:Number(row.nextDate.slice(8,10))}),formatDays(row.daysUntil));
+  show('home-next',overview.nextBirthdays.map(birthdayRow),t('noNext'));
+  show('home-upcoming',overview.upcoming.map(birthdayRow),t('noUpcoming'));
+  show('home-anniversaries',overview.anniversaries.map((row) => makePersonRow(row.person,
     `${t('dateDay', { month:Number(row.nextDate.slice(5, 7)), day:Number(row.nextDate.slice(8, 10)) })}`
       + ` · ${anniversaryText(row.ann, row.nextDate)}`,
-    formatDays(row.daysUntil))));
+    formatDays(row.daysUntil))),t('noOtherUpcoming'));
 }
 
 function renderCalendar() {
+  personMenu?.close(false);
+  railMenu?.close(false);
   gestures?.cancel();
   const year = state.month.getUTCFullYear(), month = state.month.getUTCMonth() + 1;
   $('month-title').textContent = t('dateMonth', { year, month });
@@ -126,17 +135,22 @@ function renderCalendar() {
   const railPeople = state.railFilter === 'unregistered'
     ? state.people.filter((person) => !birthdayOf(person)) : state.people;
   $('rail-count').textContent = t('peopleCount', { count:railPeople.length });
+  renderRailManagement();
   if (!railPeople.length) empty($('person-rail'), t('noPeople'));
-  else $('person-rail').replaceChildren(...[...railPeople].sort((a, b) => a.displayName.localeCompare(b.displayName, 'ja'))
+  else $('person-rail').replaceChildren(...sortedRailPeople(railPeople,state.railSort,state.today,currentLanguage())
     .map((person) => {
+      if(state.railBulk){const label=el('label','avatar-person bulk-person'),check=el('input');check.type='checkbox';check.checked=state.railSelected.has(person.id);check.disabled=state.railDeleting;check.dataset.bulkPersonId=person.id;
+        check.setAttribute('aria-label',t('selectPerson',{name:person.displayName}));
+        check.onchange=()=>{if(check.checked)state.railSelected.add(person.id);else state.railSelected.delete(person.id);renderRailManagement();};
+        label.append(check,avatar(person),el('small','',person.displayName));return label;}
       const button = el('button', `avatar-person${birthdayOf(person) ? ' registered' : ''}${state.selectedPersonId === person.id ? ' selected' : ''}`);
-      button.type = 'button'; button.draggable = true; button.dataset.personId = person.id;
+      button.type = 'button'; button.draggable = false; button.dataset.personId = person.id;
       button.title = t('railTitle', { name:person.displayName });
       button.append(avatar(person), el('small', '', person.displayName));
       button.setAttribute('aria-pressed', String(state.selectedPersonId === person.id));
       button.addEventListener('click', () => openDetail(person.id));
-      button.addEventListener('dragstart', (event) => { event.dataTransfer.setData('text/plain', person.id); event.dataTransfer.effectAllowed = 'move'; });
-      return button;
+      button.addEventListener('dragstart',event=>event.preventDefault());
+      const wrap=el('div','person-action-wrap rail-action-wrap');wrap.append(button,personMenuTrigger(person));return wrap;
     }));
   const grid = $('calendar-grid'); grid.replaceChildren();
   for (let day = 0; day < 7; day++) grid.append(el('div', 'weekday', t(`day${day}`)));
@@ -149,11 +163,12 @@ function renderCalendar() {
   for (let day = 1; day <= last; day++) {
     const date = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     const events = byDay.get(date) ?? [];
-    // 日付と人物をそれぞれボタンにし、buttonの入れ子を避ける。
+    // 日付・人物は別ボタンのまま、クリックは日付セルへ集約する（ドラッグは別処理）。
     const cell = el('div', `day-cell${date === state.today ? ' today' : ''}`);
     cell.dataset.date = date;
     cell.setAttribute('role', 'gridcell'); cell.setAttribute('aria-label', t('dayAria', { month, day, count:events.length }));
     const dayButton = el('button', 'day-number day-open', day); dayButton.type = 'button';
+    dayButton.setAttribute('aria-haspopup','dialog');dayButton.setAttribute('aria-controls','detail-dialog');
     dayButton.setAttribute('aria-label', t('dayAria', { month, day, count:events.length }));
     cell.append(dayButton); const pics = el('div', 'day-avatars');
     const visibleLimit = 1;
@@ -162,60 +177,66 @@ function renderCalendar() {
       const item = el('button', `calendar-event ${birthday ? 'birthday-event' : 'anniversary-event'}`);
       item.type = 'button'; item.dataset.personId = entry.person.id;
       item.dataset.eventKey = eventKey(entry.ann); item.draggable = false;
-      const label = t('calendarEventDetail', { name:entry.person.displayName,
+      const label = t('calendarEventList', { name:entry.person.displayName,
         event:birthday ? t('birthday') : anniversaryText(entry.ann, date) });
       item.title = label; item.setAttribute('aria-label', label);
+      item.setAttribute('aria-haspopup','dialog');item.setAttribute('aria-controls','detail-dialog');
       const icon = el('span', 'event-avatar');
       const mark = el('span', 'event-mark', birthday ? '🎂' : '🎉'); mark.setAttribute('aria-hidden', 'true');
       icon.append(avatar(entry.person), mark);
       item.append(icon, el('span', 'event-name', birthday ? entry.person.displayName
         : `${entry.person.displayName} · ${anniversaryText(entry.ann, date)}`));
-      item.addEventListener('click', (event) => { event.stopPropagation(); openDetail(entry.person.id); });
       pics.append(item);
     }
     if (events.length > visibleLimit) {
       const more = el('button', 'more', `+${events.length - visibleLimit}`); more.type = 'button';
       more.setAttribute('aria-label', t('calendarMoreEvents', { count:events.length - visibleLimit }));
-      more.addEventListener('click', (event) => { event.stopPropagation(); openDayPeople(events, month, day); });
+      more.setAttribute('aria-haspopup','dialog');more.setAttribute('aria-controls','detail-dialog');
       pics.append(more);
     }
     cell.append(pics);
     cell.addEventListener('click', () => openDayPeople(events, month, day));
-    cell.addEventListener('dragover', (event) => { event.preventDefault(); cell.classList.add('drop-target'); });
+    cell.addEventListener('dragover', (event) => { if(state.railBulk)return;event.preventDefault(); cell.classList.add('drop-target'); });
     cell.addEventListener('dragleave', () => cell.classList.remove('drop-target'));
     cell.addEventListener('drop', (event) => { event.preventDefault(); cell.classList.remove('drop-target');
-      const personId = event.dataTransfer.getData('text/plain'); if (byId(personId)) assignBirthday(personId, month, day); });
+      if(state.railBulk)return;
+      const personId = event.dataTransfer.getData('text/plain'); if (byId(personId)) requestEventMove({personId,to:date,sourceRail:true}); });
     grid.append(cell);
   }
 }
 
 function renderSelection() {
   const person = byId(state.selectedPersonId);
-  if (!person) state.selectedPersonId = null;
-  $('selection-hint').textContent = person ? t('selectedHint', { name:person.displayName }) : t('dayHint');
+  if (!person) {state.selectedPersonId = null;state.selectionEvent=null;}
+  const selectedAnn=person&&state.selectionEvent?person.anniversaries.find(a=>eventKey(a)===state.selectionEvent.key):null;
+  $('selection-hint').textContent = person ? selectedAnn?t('selectedEventHint',{name:person.displayName,event:eventTitle(selectedAnn)}):t('selectedHint', { name:person.displayName }) : t('dayHint');
   $('clear-selection').hidden = !person;
   for (const item of document.querySelectorAll('.avatar-person, .person-card')) {
     const selected = item.dataset.personId === state.selectedPersonId;
     item.classList.toggle('selected', selected); item.setAttribute('aria-pressed', String(selected));
   }
 }
-function selectPerson(id) {
+function selectPerson(id, context=null) {
   if (!byId(id)) return;
   clearTimeout(toast.timer); $('toast').hidden = true;
-  state.selectedPersonId = id; renderSelection();
+  state.selectedPersonId = id; state.selectionEvent=context?.key?context:null;renderSelection();
   // 人物タブから選んだ場合も、操作対象と重ならないカレンダー案内へ誘導。
   switchTab('calendar');
   $('clear-selection').focus({ preventScroll:true });
 }
 
 function requestEventMove(payload) {
+  if(state.railBulk)return;
   const person = byId(payload.personId); if (!person) return;
   try {
-    if (!movedPerson(person, payload.key, payload.from, payload.to)) return;
+    if(payload.sourceRail){const date=new Date(payload.to+'T00:00:00Z');
+      const previous=birthdayOf(person);if(previous&&occurrenceForYear(previous,date.getUTCFullYear())===payload.to)return;
+      payload={...payload,key:'BIRTHDAY',kind:'assignBirthday',from:previous?t('dateDay',previous):t('unregistered')};
+    }else if (!movedPerson(person, payload.key, payload.from, payload.to)) return;
     pendingMove = { ...payload, person };
     const ann = person.anniversaries.find((item) => eventKey(item) === payload.key);
     $('move-description').textContent = t('moveQuestion', { name:person.displayName,
-      event:ann.type === 'BIRTHDAY' ? t('birthday') : eventTitle(ann), from:payload.from, to:payload.to });
+      event:payload.kind==='assignBirthday'||ann?.type === 'BIRTHDAY' ? t('birthday') : eventTitle(ann), from:payload.from, to:payload.to });
     $('move-error').hidden = true; $('move-dialog').showModal();
   } catch { toast(t('moveStale'));if(payload.sourceList)reopenDay(); }
 }
@@ -227,8 +248,10 @@ async function confirmEventMove() {
     const move = pendingMove;
     const current = await get(state.db, 'people', move.personId);
     if (JSON.stringify(current) !== JSON.stringify(move.person)) throw new Error('moveStale');
-    const changed = movedPerson(current, move.key, move.from, move.to);
+    const target=new Date(move.to+'T00:00:00Z');
+    const changed = move.kind==='assignBirthday'?birthdayAssignedPerson(current,target.getUTCMonth()+1,target.getUTCDate()):movedPerson(current, move.key, move.from, move.to);
     await savePerson(state.db, changed);
+    state.selectedPersonId=null;state.selectionEvent=null;
     $('move-dialog').close(); await refresh(); toast(t('eventMoved'));
     $('calendar-grid').querySelector(`[data-person-id="${move.personId}"][data-event-key="${move.key}"]`)?.focus({ preventScroll:true });
   } catch (error) {
@@ -241,6 +264,7 @@ async function confirmEventMove() {
 }
 
 function openDayPeople(events, month, day) {
+  if(!$('detail-dialog').open&&!calendarDialogOrigin)calendarDialogOrigin={x:window.scrollX,y:window.scrollY,month:state.month.toISOString(),date:`${state.month.getUTCFullYear()}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`};
   state.detailPersonId = null; state.detailDay = { year:state.month.getUTCFullYear(), month, day };
   $('detail-dialog').querySelector('h2').textContent = t('dayPeople', { month, day });
   const body = $('detail-body'); body.replaceChildren();
@@ -262,7 +286,7 @@ function openDayPeople(events, month, day) {
   $('detail-edit').hidden = true; $('detail-choose').hidden = true; $('day-add').hidden = false;
   const selected = byId(state.selectedPersonId);
   $('day-assign').hidden = !selected;
-  if (selected) $('day-assign').textContent = t('assignBirthdayOnDate', { name:selected.displayName });
+  if (selected) $('day-assign').textContent = state.selectionEvent?t('moveSelectedEvent',{name:selected.displayName}):t('assignBirthdayOnDate', { name:selected.displayName });
   if (!$('detail-dialog').open) $('detail-dialog').showModal();
 }
 
@@ -279,15 +303,70 @@ async function saveDayOrder(date,ids) {
 
 async function assignBirthday(personId, month, day) {
   const person = byId(personId); if (!person) return;
-  const anniversaries = person.anniversaries.filter((ann) => ann.type !== 'BIRTHDAY');
-  const previous = birthdayOf(person);
-  anniversaries.unshift({ type: 'BIRTHDAY', month, day, year: previous?.year ?? null, showAge: previous?.showAge ?? false });
-  try { await savePerson(state.db, { ...person, anniversaries }); state.selectedPersonId = null;
+  try { await savePerson(state.db, birthdayAssignedPerson(person,month,day)); state.selectedPersonId = null;state.selectionEvent=null;
     await refresh(); toast(t('birthdaySaved', { name:person.displayName, date:t('dateDay', { month, day }) })); }
   catch (error) { toast(errorText(error)); }
 }
 
+function personMenuTrigger(person,context={}) {
+  const button=el('button','person-menu-trigger','⋯');button.type='button';button.dataset.menuPersonId=person.id;
+  button.setAttribute('aria-label',t('personActions',{name:person.displayName}));button.setAttribute('aria-haspopup','menu');
+  button.setAttribute('aria-controls','person-action-menu');button.setAttribute('aria-expanded','false');
+  button.onclick=event=>{event.stopPropagation();railMenu?.close(false);personMenu.open(person.id,button,context);};return button;
+}
+function setupRailManagement(){
+  const heading=document.querySelector('.people-rail .section-heading'),actions=el('div','rail-heading-actions');
+  const manage=el('button','quiet');manage.id='rail-manage';manage.type='button';manage.setAttribute('aria-haspopup','menu');manage.setAttribute('aria-controls','rail-manage-menu');manage.setAttribute('aria-expanded','false');
+  const icon=document.createElementNS('http://www.w3.org/2000/svg','svg');icon.setAttribute('viewBox','0 0 24 24');icon.setAttribute('aria-hidden','true');icon.classList.add('outline-icon');
+  const path=document.createElementNS(icon.namespaceURI,'path');path.setAttribute('d','M4 7h16M4 17h16M9 4v6M15 14v6');icon.append(path);
+  const text=el('span');text.id='rail-manage-label';manage.append(icon,text);actions.append($('rail-count'),manage);heading.append(actions);
+  const sortLabel=el('label','rail-sort'),sortText=el('span'),sort=el('select');sortLabel.id='rail-sort-control';sortText.id='rail-sort-label';sort.id='rail-sort';sort.setAttribute('aria-labelledby','rail-sort-label');
+  for(const value of RAIL_SORTS){const option=el('option');option.value=value;sort.append(option);}sortLabel.append(sortText,sort);
+  const toolbar=el('div','rail-bulk-actions');toolbar.id='rail-bulk-actions';const count=el('span');count.id='rail-selected-count';count.setAttribute('role','status');
+  const remove=el('button','danger-link');remove.type='button';remove.id='rail-delete-selected';remove.onclick=deleteSelectedPeople;
+  const cancel=el('button','quiet');cancel.type='button';cancel.id='rail-bulk-cancel';cancel.onclick=()=>{if(state.railDeleting)return;state.railBulk=false;state.railSelected.clear();$('rail-error').hidden=true;renderCalendar();$('rail-manage').focus({preventScroll:true});};
+  toolbar.append(count,remove,cancel);const error=el('p','form-error');error.id='rail-error';error.setAttribute('role','alert');error.hidden=true;
+  heading.after(sortLabel,toolbar,error);
+  railMenu=setupPersonMenu({id:'rail-manage-menu',label:()=>t('managePeople'),actions:[
+    {key:'bulk',label:()=>t('bulkDeleteMode'),run:()=>{state.railBulk=true;state.railSelected.clear();state.selectedPersonId=null;state.selectionEvent=null;$('rail-error').hidden=true;renderCalendar();$('rail-bulk-cancel').focus({preventScroll:true});}},
+    {key:'sort',label:()=>t('sort'),run:()=>{state.railSortOpen=true;renderCalendar();$('rail-sort').focus({preventScroll:true});}},
+  ]});
+  manage.onclick=()=>{personMenu?.close(false);railMenu.open('rail',manage);};
+  sort.onchange=()=>{state.railSort=sort.value;renderCalendar();};
+  document.addEventListener('keydown',event=>{if(event.key==='Escape'&&state.railBulk&&!state.railDeleting&&!document.querySelector('dialog[open]')){event.preventDefault();cancel.click();}});
+}
+function renderRailManagement(){
+  $('rail-manage-label').textContent=t('managePeople');$('rail-manage').disabled=state.railBulk||state.railDeleting;
+  $('rail-sort-control').hidden=!state.railSortOpen;$('rail-sort-label').textContent=t('sort');$('rail-sort').value=state.railSort;
+  $('rail-sort').disabled=state.railDeleting;
+  document.querySelector('.people-rail .help').textContent=t(state.railBulk?'railBulkHelp':'railHelp');
+  for(const option of $('rail-sort').options)option.textContent=t('railSort_'+option.value);
+  $('rail-bulk-actions').hidden=!state.railBulk;$('rail-selected-count').textContent=t('selectedPeopleCount',{count:state.railSelected.size});
+  $('rail-delete-selected').textContent=t(state.railDeleting?'saving':'deleteSelected');$('rail-delete-selected').disabled=state.railDeleting||!state.railSelected.size;
+  $('rail-bulk-cancel').textContent=t('cancel');$('rail-bulk-cancel').disabled=state.railDeleting;
+  for(const input of document.querySelectorAll('[data-bulk-person-id]'))input.disabled=state.railDeleting;
+  for(const button of document.querySelectorAll('[data-rail-filter]'))button.disabled=state.railDeleting;
+}
+async function deleteSelectedPeople(){
+  if(state.railDeleting||!state.railSelected.size)return;
+  const ids=[...state.railSelected],people=ids.map(byId);if(people.some(p=>!p))return;
+  if(!confirm(t('bulkDeleteQuestion',{count:ids.length,names:people.map(p=>p.displayName).join('\n')})))return;
+  state.railDeleting=true;$('rail-error').hidden=true;renderRailManagement();
+  try{await deletePeople(state.db,ids);state.railSelected.clear();state.railBulk=false;state.selectedPersonId=null;state.selectionEvent=null;await refresh();toast(t('peopleDeleted',{count:ids.length}));}
+  catch(error){$('rail-error').textContent=errorText(error);$('rail-error').hidden=false;}
+  finally{state.railDeleting=false;renderRailManagement();}
+}
+async function requestPersonDeletion(id) {
+  const person=byId(id);if(!person||!confirm(t('deleteQuestion',{name:person.displayName})))return;
+  try{await deletePerson(state.db,id);personMenu?.removePerson(id);
+    if(state.selectedPersonId===id){state.selectedPersonId=null;state.selectionEvent=null;}
+    if($('person-dialog').open&&$('person-id').value===id)$('person-dialog').close();
+    if($('detail-dialog').open)$('detail-dialog').close();
+    await refresh();toast(t('personDeleted'));
+  }catch(error){toast(errorText(error));}
+}
 function renderPeople() {
+  personMenu?.close(false);
   const options = { category: $('people-category').value, month: Number($('people-month').value),
     search: $('people-search').value, birthday: $('people-birthday').value };
   const people = filterPeople(state.people, options);
@@ -307,7 +386,8 @@ function renderPeople() {
     card.title = t('railTitle', { name:person.displayName });
     const content = el('span', 'person-card-content'); content.append(el('strong', '', person.displayName),
       el('small', '', `${categoryLabel(person.category)} · ${birthdayText(person)}`)); card.append(content);
-    card.addEventListener('click', () => openDetail(person.id)); return card;
+    card.addEventListener('click', () => openDetail(person.id));
+    const wrap=el('div','person-action-wrap');wrap.append(card,personMenuTrigger(person));return wrap;
   }));
 }
 
@@ -366,13 +446,12 @@ function anniversaryRow(value = null) {
   const titleLabel = el('label', '', t('anniversaryName')); const title = el('input', 'ann-title');
   title.maxLength = 100; title.required = true; title.placeholder = t('anniversaryExample');
   title.value = value ? eventTitle(value) : ''; titleLabel.append(title);
-  const fields = [[t('month'), 'ann-month', value?.month, 1, 12], [t('day'), 'ann-day', value?.day, 1, 31],
-    [t('optionalYear'), 'ann-year', value?.year, 1900, 2100]];
   row.append(titleLabel);
-  for (const [label, cls, current, min, max] of fields) { const wrap = el('label', 'short', label);
-    const input = el('input', cls); input.type = 'number'; input.min = min; input.max = max;
-    input.value = current ?? ''; if (cls !== 'ann-year') input.required = true;
-    wrap.append(input); row.append(wrap); }
+  const month=el('select','ann-month'),day=el('select','ann-day');
+  for(const [label,select]of [[t('month'),month],[t('day'),day]]){const wrap=el('label','short',label);wrap.append(select);row.append(wrap);}
+  const dates=setupMonthDay(month,day,{monthLabel,dayLabel,empty:()=>t('unregistered'),required:true});dates.set(value?.month,value?.day);dates.bind();
+  const yearWrap=el('label','short',t('optionalYear')),year=el('input','ann-year');
+  year.type='number';year.min=1900;year.max=2100;year.value=value?.year??'';yearWrap.append(year);row.append(yearWrap);
   for (const [key, label, checked] of [
     ['recurring', t('repeatYearly'), value?.recurring !== false],
     ['showAnniversary', t('showAnniversary'), value?.showAnniversary === true],
@@ -404,9 +483,8 @@ function openForm(id = null, initialDate = null) {
   $('person-series').value = person?.seriesName ?? ''; $('person-username').value = person?.username ?? '';
   $('person-x-url').value = person?.xProfileUrl ?? ''; $('person-memo').value = person?.memo ?? '';
   const b = person && birthdayOf(person);
-  $('person-birth-month').value = b?.month ?? state.formCalendarDate?.month ?? '';
-  $('person-birth-day').value = b?.day ?? state.formCalendarDate?.day ?? '';
-  $('person-birth-year').value = b?.year ?? ''; $('person-show-age').checked = b?.showAge ?? false;
+  birthDateFields.set(b?.month??state.formCalendarDate?.month??'',b?.day??state.formCalendarDate?.day??'');
+  birthYearFields.set(b?.year??''); $('person-show-age').checked = b?.showAge ?? false;
   $('remove-image-wrap').hidden = !person?.hasImage; $('delete-person').hidden = !person;
   $('anniversary-fields').replaceChildren(...(person?.anniversaries.filter((ann) => ann.type !== 'BIRTHDAY') ?? []).map(anniversaryRow));
   $('link-fields').replaceChildren(...(person?.links ?? []).map(linkRow));
@@ -547,7 +625,7 @@ async function previewRestore(file) {
       try { await restoreBackup(state.db, prepared); state.preparedBackup = null; host.hidden = true;
         appearance = await loadAppearance(state.db); applyAppearance(appearance);
         setLanguage(await loadLanguage(state.db)); $('language-choice').value = currentLanguage();
-        applyStaticTranslations(); avatarEditor.refreshLanguage(); await refresh();
+        applyStaticTranslations(); avatarEditor.refreshLanguage(); birthYearFields.refresh();birthDateFields.refresh(); await refresh();
         await renderStorageStats(); updates?.refreshLanguage(); toast(t('restoreDone')); }
       catch (error) { toast(errorText(error)); }
     };
@@ -573,6 +651,8 @@ function initOptions() {
 
 function bindEvents() {
   setupSettingsSections(t); setupOutlineIcons();
+  birthDateFields=setupMonthDay($('person-birth-month'),$('person-birth-day'),{monthLabel,dayLabel,empty:()=>t('unregistered')});birthDateFields.bind();
+  birthYearFields=setupBirthYear({input:$('person-birth-year'),choice:$('person-birth-year-choice'),mode:$('person-birth-year-mode'),currentYear:todayYear,t});birthYearFields.set();
   $('header-settings').onclick = () => switchTab('settings');
   $('theme-choice').onchange = async (event) => {
     try { const next = { theme:event.target.value }; await saveAppearance(state.db,next); appearance=next; applyAppearance(appearance); }
@@ -580,15 +660,24 @@ function bindEvents() {
   };
   systemTheme.addEventListener('change', () => applyAppearance(appearance, systemTheme.matches));
   avatarEditor = setupAvatarEditor();
+  personMenu=setupPersonMenu({label:id=>t('personActions',{name:byId(id)?.displayName??''}),actions:[
+    {key:'move',label:()=>t('menuMoveDate'),run:(id,context)=>{if($('detail-dialog').open)$('detail-dialog').close();selectPerson(id,context);}},
+    {key:'edit',label:()=>t('menuEditPerson'),run:id=>{if($('detail-dialog').open)$('detail-dialog').close();openForm(id);}},
+    {key:'delete',label:()=>t('menuDeletePerson'),run:requestPersonDeletion},
+  ]});
+  setupRailManagement();
   gestures = setupCalendarGestures({ grid:$('calendar-grid'),
+    enabled:()=>!state.railBulk&&!state.railDeleting,
     roots:[$('calendar-grid'), $('person-rail'), $('people-list'), $('detail-body')], onMove:requestEventMove, onSelect:selectPerson,
+    onMenu:(id,item)=>personMenu.open(id,item),onRailStart:()=>$('calendar-grid').scrollIntoView({block:'center',behavior:'instant'}),
     onReorder:saveDayOrder, onCancelList:reopenDay,
     onLeaveList:() => { $('detail-dialog').close();$('calendar-grid').scrollIntoView({block:'center',behavior:'instant'}); } });
   $('detail-body').addEventListener('dragstart',event=>event.preventDefault());
   // 画像の標準ドラッグがPointer Eventsを横取りしないよう、カレンダーだけ抑止。
   $('calendar-grid').addEventListener('dragstart', (event) => event.preventDefault());
+  $('person-rail').addEventListener('dragstart',event=>event.preventDefault());
   compactCalendar.addEventListener('change', renderCalendar);
-  $('clear-selection').onclick = () => { state.selectedPersonId = null; renderSelection(); };
+  $('clear-selection').onclick = () => { state.selectedPersonId = null;state.selectionEvent=null; renderSelection(); };
   $('move-confirm').onclick = confirmEventMove;
   $('move-cancel').onclick = () => { if (!moveSaving) { const restore=pendingMove?.sourceList;$('move-dialog').close();if(restore)reopenDay(); } };
   $('move-dialog').addEventListener('cancel', (event) => {
@@ -601,6 +690,7 @@ function bindEvents() {
     try {
       await saveLanguage(state.db, event.target.value);
       setLanguage(event.target.value); applyStaticTranslations(); avatarEditor.refreshLanguage();
+      birthDateFields.refresh();birthYearFields.refresh();
       renderHome(); renderCalendar(); renderPeople(); renderBirthdays(); renderNotifications(); renderSettings();
       if ($('detail-dialog').open && state.detailPersonId) openDetail(state.detailPersonId);
       else if ($('detail-dialog').open && state.detailDay) {
@@ -621,7 +711,7 @@ function bindEvents() {
       if (current !== state.today) { state.today = current; await refresh(); }
     }
   });
-  for (const id of ['home-add', 'people-add']) $(id).onclick = () => openForm();
+  for (const id of ['calendar-add', 'people-add']) $(id).onclick = () => openForm();
   $('person-form').addEventListener('submit', submitPerson);
   $('person-dialog').addEventListener('close', () => {
     if ($('person-dialog').open || !state.formCalendarDate) return;
@@ -631,6 +721,15 @@ function bindEvents() {
   $('add-anniversary').onclick = () => $('anniversary-fields').append(anniversaryRow());
   $('add-link').onclick = () => $('link-fields').append(linkRow());
   for (const button of document.querySelectorAll('[data-close]')) button.onclick = () => $(button.dataset.close).close();
+  $('detail-dialog').addEventListener('close',()=>{
+    // 同じdialogを一覧→人物詳細へ使い直している間は復帰を待つ。
+    if($('detail-dialog').open)return;
+    const origin=calendarDialogOrigin;calendarDialogOrigin=null;
+    // 登録フォームやドラッグへの遷移では既存のフォーカス・スクロール処理を優先。
+    if(!origin||$('view-calendar').hidden||document.querySelector('dialog[open],.drag-ghost')||state.month.toISOString()!==origin.month)return;
+    $('calendar-grid').querySelector(`[data-date="${origin.date}"] .day-open`)?.focus({preventScroll:true});
+    window.scrollTo({left:origin.x,top:origin.y,behavior:'instant'});
+  });
   for (const dialog of document.querySelectorAll('dialog')) dialog.addEventListener('click', (event) => {
     if (event.target === dialog && !(dialog.id === 'move-dialog' && moveSaving)) dialog.close(); });
   $('detail-edit').onclick = () => { $('detail-dialog').close(); openForm(state.detailPersonId); };
@@ -640,18 +739,18 @@ function bindEvents() {
   };
   $('day-assign').onclick = async () => {
     const date = state.detailDay, id = state.selectedPersonId; if (!date || !id) return;
-    $('detail-dialog').close(); await assignBirthday(id, date.month, date.day);
+    $('detail-dialog').close();
+    if(state.selectionEvent){requestEventMove({personId:id,...state.selectionEvent,to:`${date.year}-${String(date.month).padStart(2,'0')}-${String(date.day).padStart(2,'0')}`});}
+    else await assignBirthday(id, date.month, date.day);
   };
-  $('detail-choose').onclick = () => { state.selectedPersonId = state.detailPersonId;
-    $('detail-dialog').close(); switchTab('calendar'); renderCalendar(); };
-  $('delete-person').onclick = async () => { const person = byId($('person-id').value);
-    if (!person || !confirm(t('deleteQuestion', { name:person.displayName }))) return;
-    try { await deletePerson(state.db, person.id); $('person-dialog').close(); await refresh(); toast(t('personDeleted')); }
-    catch (error) { toast(errorText(error)); } };
+  $('detail-choose').onclick = () => { const id=state.detailPersonId;
+    $('detail-dialog').close();selectPerson(id);renderCalendar(); };
+  $('delete-person').onclick = () => requestPersonDeletion($('person-id').value);
   $('calendar-today').onclick = () => { state.month = new Date(Date.UTC(todayYear, todayMonth - 1, 1)); renderCalendar(); };
   $('month-prev').onclick = () => { state.month = new Date(Date.UTC(state.month.getUTCFullYear(), state.month.getUTCMonth() - 1, 1)); renderCalendar(); };
   $('month-next').onclick = () => { state.month = new Date(Date.UTC(state.month.getUTCFullYear(), state.month.getUTCMonth() + 1, 1)); renderCalendar(); };
   for (const button of document.querySelectorAll('[data-rail-filter]')) button.onclick = () => {
+    state.railSelected.clear();$('rail-error').hidden=true;
     state.railFilter = button.dataset.railFilter;
     for (const peer of document.querySelectorAll('[data-rail-filter]')) peer.classList.toggle('active', peer === button);
     renderCalendar(); };
@@ -682,7 +781,7 @@ async function boot() {
     initOptions(); bindEvents(); state.db = await openDatabase();
     appearance = await loadAppearance(state.db); applyAppearance(appearance);
     setLanguage(await loadLanguage(state.db)); $('language-choice').value = currentLanguage();
-    $('app-version').textContent = APP_VERSION; applyStaticTranslations(); await refresh();
+    $('app-version').textContent = APP_VERSION; applyStaticTranslations();birthYearFields.refresh(); await refresh();
     switchTab(location.hash.slice(1) || 'home');
     if (import.meta.env.PROD) updates = await setupUpdates({ t, errorText,
       confirmUpdate: () => !document.querySelector('dialog[open]') || confirm(t('updateUnsaved')) });

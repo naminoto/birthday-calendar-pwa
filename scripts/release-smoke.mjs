@@ -8,12 +8,20 @@ import { verifyCalendarRegistration } from './calendar-registration-smoke.mjs';
 import { verifyCalendarInteractions } from './calendar-interaction-smoke.mjs';
 import { verifyYoribiUI } from './yoribi-smoke.mjs';
 import { verifyDayListGestures } from './day-list-smoke.mjs';
+import { verifyHome } from './home-smoke.mjs';
+import { verifyFontLab } from './font-lab-smoke.mjs';
+import { verifyStandardFont } from './standard-font-smoke.mjs';
+import { verifyBirthdayUI } from './birthday-ui-smoke.mjs';
+import {verifyPersonActions} from './person-actions-smoke.mjs';
+import {verifyRailManagement} from './rail-management-smoke.mjs';
+import {verifyCalendarTaps} from './calendar-tap-smoke.mjs';
 
 // 公開版の確認、または旧配布物→現在のdistの更新確認。実データには触れない。
 const option = (name) => process.argv.find((arg) => arg.startsWith(`--${name}=`))?.slice(name.length + 3);
-const previousDist = option('previous-dist'), publicUrl = option('url');
-if (!previousDist && !publicUrl) throw new Error('Use --previous-dist=PATH or --url=HTTPS_URL');
-const currentRoot = resolve(option('current-dist') || 'dist'); let servingRoot = previousDist && resolve(previousDist);
+const previousDist = option('previous-dist'), publicUrl = option('url'), localDist=option('serve-dist');
+if (!previousDist && !publicUrl && !localDist) throw new Error('Use --previous-dist=PATH, --serve-dist=PATH or --url=HTTPS_URL');
+const runUI=Boolean(publicUrl||localDist);
+const currentRoot = resolve(option('current-dist') || localDist || 'dist'); let servingRoot = previousDist ? resolve(previousDist) : currentRoot;
 const mime = { '.html':'text/html', '.js':'text/javascript', '.css':'text/css', '.png':'image/png', '.webmanifest':'application/manifest+json' };
 const server = publicUrl ? null : createServer((req, res) => {
   const pathname = new URL(req.url, 'http://localhost').pathname;
@@ -87,6 +95,11 @@ try {
     registrationFlow = await verifyCalendarRegistration({ evaluate, until, check });
   }
   let upgrade = null;
+  let calendarTapsFlow=null,railManagementFlow=null;
+  if(runUI&&option('check-calendar-taps')==='true')calendarTapsFlow=await verifyCalendarTaps({evaluate,until,check,command,sleep:pause});
+  if(runUI&&option('check-rail-management')==='true')railManagementFlow=await verifyRailManagement({evaluate,until,check,command,sleep:pause});
+  let personActionsFlow=null;
+  if(runUI&&option('check-person-actions')==='true')personActionsFlow=await verifyPersonActions({evaluate,until,check,command,sleep:pause});
   let interactionFlow = null;
   if (publicUrl && option('check-interactions') === 'true') {
     await command('Emulation.setDeviceMetricsOverride', { width:390, height:844, deviceScaleFactor:1, mobile:true });
@@ -96,6 +109,18 @@ try {
   if (publicUrl && option('check-day-list') === 'true') {
     dayListFlow = await verifyDayListGestures({ evaluate, until, check, command, sleep:pause });
   }
+  let homeFlow = null;
+  if (publicUrl && option('check-home') === 'true') {
+    homeFlow = await verifyHome({ evaluate, until, check, command });
+  }
+  let fontLabFlow = null;
+  if (publicUrl && option('check-font-lab') === 'true') {
+    fontLabFlow = await verifyFontLab({ evaluate, until, check, command });
+  }
+  let birthdayUIFlow=null;
+  if(runUI&&option('check-birthday-ui')==='true')birthdayUIFlow=await verifyBirthdayUI({evaluate,until,check,command});
+  let standardFontFlow=null;
+  if(runUI&&option('check-standard-font')==='true')standardFontFlow=await verifyStandardFont({evaluate,until,check,command,errors});
   if (previousDist) {
     const previousVersion = await evaluate('document.querySelector("#app-version").textContent');
     const expectedPrevious = readFileSync(join(previousDist, 'sw.js'), 'utf8').match(/const APP_VERSION = '([^']+)'/)?.[1];
@@ -114,6 +139,7 @@ try {
           {id:crypto.randomUUID(),type:'CUSTOM',title:'Test anniversary',month:Number(field('month')),day:Number(field('day')),year:2024,recurring:true,showAnniversary:true,notify:false}]});
       tx.objectStore('images').put({personId:id,type:blob.type,blob});
       tx.objectStore('settings').put({key:'language',value:'en'});
+      tx.objectStore('settings').put({key:'appearance',value:{theme:'dark'}});
       tx.objectStore('settings').put({key:'notifications',value:{enabled:true,seven:false,three:true,one:false,today:true}});
       tx.objectStore('notifications').put({id:id+':'+today+':0',personId:id,birthdayDate:today,daysBefore:0,createdAt:time,readAt:time});
       await new Promise((done,fail)=>{tx.oncomplete=done;tx.onabort=()=>fail(tx.error);});db.close();})()`);
@@ -166,7 +192,7 @@ try {
   const externalRequests = requests.filter((url) => !url.startsWith(baseUrl) && !url.startsWith('blob:') && !url.startsWith('data:'));
   check(externalRequests.length === 0, `Unexpected requests: ${JSON.stringify(externalRequests)}`);
   check(errors.length === 0, `Browser errors: ${JSON.stringify(errors)}`);
-  console.log(JSON.stringify({ baseUrl, upgrade, published, yoribiFlow, registrationFlow, interactionFlow, dayListFlow, offlineAfterUpgrade:!!previousDist, consoleErrors:errors.length, externalRequests:externalRequests.length }));
+  console.log(JSON.stringify({ baseUrl, upgrade, published, yoribiFlow, registrationFlow, calendarTapsFlow, railManagementFlow, personActionsFlow, interactionFlow, dayListFlow, homeFlow, fontLabFlow, birthdayUIFlow, standardFontFlow, offlineAfterUpgrade:!!previousDist, consoleErrors:errors.length, externalRequests:externalRequests.length }));
 } finally {
   socket?.close(); child?.kill(); server?.close();
   if (profile.startsWith(resolve(tmpdir()) + sep) && profile.includes('birthday-release-smoke-')) {

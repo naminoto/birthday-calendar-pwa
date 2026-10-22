@@ -7,7 +7,7 @@ export async function verifyDayListGestures({evaluate,until,check,command,sleep,
     anniversaries:[{type:'BIRTHDAY',month:5,day:10,year:2000,showAge:true},...['出会い','単発'].map((title,i)=>({id:crypto.randomUUID(),type:'CUSTOM',title,month:5,day:10,year:i?2028:2020,recurring:!i,showAnniversary:true,notify:false}))]});
     await new Promise(done=>tx.oncomplete=done);db.close();})()`);
   const month=async()=>evaluate(`(()=>{document.querySelector('[data-tab=calendar]').click();const p=document.querySelector('#month-title').textContent.match(/(\\d+)年(\\d+)月/);const diff=2028*12+4-(Number(p[1])*12+Number(p[2])-1);for(let n=0;n<Math.abs(diff);n++)document.querySelector(diff>0?'#month-next':'#month-prev').click();})()`);
-  const reload=async()=>{await command('Page.reload');await until(()=>evaluate('document.querySelector("#summary-grid")?.children.length===4'),'一覧再起動');await month();};
+  const reload=async()=>{await command('Page.reload');await until(()=>evaluate('Boolean(document.querySelector("#home-today-date")?.dateTime)'),'一覧再起動');await month();};
   await reload();await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
   await evaluate(`document.querySelector('[data-tab=settings]').click();const s=document.querySelector('#theme-choice');s.value='dark';s.dispatchEvent(new Event('change'));document.querySelector('[data-tab=calendar]').click()`);
   await until(()=>evaluate('document.documentElement.dataset.theme==="dark"'),'一覧ドラッグをダークで検証');

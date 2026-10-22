@@ -18,6 +18,8 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci
+      - name: Prepare verified font test fixtures (not published)
+        run: node scripts/prepare-font-test-fixtures.mjs
       - run: npm test
       - run: npm run build
       - uses: actions/configure-pages@v5

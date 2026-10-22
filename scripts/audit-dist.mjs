@@ -1,14 +1,17 @@
 import { readFile, readdir } from 'node:fs/promises';
 import { join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
 
 // Pagesへアップロードするdistだけを検査する。ソース/テスト/ZIP/DBを公開物へ混ぜない。
 const root = fileURLToPath(new URL('../dist/', import.meta.url));
 const required = ['index.html', 'manifest.webmanifest', 'sw.js',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png',
-  'icons/apple-touch-icon.png','icons/favicon-48.png'];
-const textExtensions = /\.(?:html|js|css|webmanifest)$/;
+  'icons/apple-touch-icon.png','icons/favicon-48.png',
+  ...['ZenMaruGothic-Regular.ttf','ZenMaruGothic-Medium.ttf','ZenMaruGothic-Bold.ttf','OFL.txt','METADATA.pb','SOURCE.json'].map(name=>`fonts/zen-maru-gothic/${name}`)];
+const textExtensions = /\.(?:html|js|css|webmanifest|json|txt|pb)$/;
 const forbidden = [
+  ['開発用フォント比較・不採用書体', /(?:__font-lab|Yoribi Font Lab|LINE Seed JP|Zen Kaku Gothic New|M PLUS 1p|Noto Sans JP|Noto Serif JP)/],
   ['秘密鍵', /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/],
   ['認証らしき値', /(?:gh[pousr]_[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{20,}|sk-[A-Za-z0-9_-]{24,}|AKIA[0-9A-Z]{16})/],
   ['DB接続文字列', /(?:jdbc:postgresql:|postgres(?:ql)?:\/\/)/i],
@@ -39,6 +42,18 @@ for (const name of paths) {
   }
 }
 const html = await readFile(join(root, 'index.html'), 'utf8');
+const source=JSON.parse(await readFile(join(root,'fonts/zen-maru-gothic/SOURCE.json'),'utf8'));
+assert(source.family==='Zen Maru Gothic'&&source.unmodified===true&&source.files.length===5,'採用書体の取得記録が不正です。');
+for(const file of source.files){
+  assert(required.includes(`fonts/zen-maru-gothic/${file.filename}`),'フォント記録に許可外ファイルがあります。');
+  const bytes=await readFile(join(root,'fonts/zen-maru-gothic',file.filename));
+  const original=await readFile(new URL(`../public/fonts/zen-maru-gothic/${file.filename}`,import.meta.url));
+  assert(bytes.equals(original)&&bytes.length===file.bytes&&createHash('sha256').update(bytes).digest('hex')===file.sha256,`${file.filename}の原本・SHA-256が不一致です。`);
+}
+const css=(await Promise.all(paths.filter(name=>name.endsWith('.css')).map(name=>readFile(join(root,name),'utf8')))).join('\n');
+assert((css.match(/@font-face/g)||[]).length===3,'採用3ウェイト以外のWebフォントがあります。');
+assert(!/url\(["']?(?:https?:|\/)/.test(css),'CSSに外部/ルート固定アセットURLがあります。');
+for(const file of source.files.filter(f=>f.filename.endsWith('.ttf')))assert(css.includes(`../fonts/zen-maru-gothic/${file.filename}`),`${file.filename}の相対URLがありません。`);
 assert(html.includes('http-equiv="Content-Security-Policy"')
   && html.includes("connect-src 'self'") && html.includes("img-src 'self' blob:"),
   '配布HTMLのCSPが不足しています。');

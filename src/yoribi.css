@@ -10,6 +10,27 @@
 .day-cell .more { position:absolute; right:0; bottom:0; width:44%; min-height:0; height:40%; max-height:28px; font-size:clamp(8px,1.2vw,12px); z-index:2; }
 .outline-icon { width:23px; height:23px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
 .header-actions { display:flex; gap:8px; }
+.person-action-wrap { position:relative; min-width:0; }
+.person-action-wrap > .person-card { width:100%; height:100%; padding-right:40px; }
+.rail-action-wrap > .avatar-person { width:100%; height:100%; padding-top:26px; }
+.person-menu-trigger { position:absolute; right:2px; top:2px; min-width:36px; min-height:36px; border:0; border-radius:8px; background:var(--soft); color:var(--ink); font-size:20px; line-height:1; z-index:3; touch-action:manipulation; }
+.person-menu-trigger:focus-visible,.person-action-menu button:focus-visible { outline:2px solid var(--brand);outline-offset:-2px; }
+.person-action-menu { position:fixed; z-index:40; width:220px; max-width:calc(100vw - 16px); max-height:calc(100dvh - 16px); overflow:auto; padding:5px; border:1px solid var(--line); border-radius:10px; background:var(--surface); color:var(--ink); box-shadow:0 6px 24px #0003; }
+.person-action-menu button { display:block; width:100%; min-height:44px; padding:10px 12px; text-align:left; border:0; border-radius:6px; background:transparent; color:var(--ink); }
+.person-action-menu button:hover,.person-action-menu button:focus { background:var(--soft); }
+.person-action-menu .danger-link { color:#b32d4d; }
+.rail-heading-actions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:flex-end; font-size:.82rem; color:var(--muted); }
+#rail-manage { padding:6px 9px; min-height:44px; font-size:.85rem; white-space:nowrap; }
+#rail-manage .outline-icon { width:19px; height:19px; }
+.rail-sort { display:grid; gap:5px; font-size:.85rem; color:var(--muted); margin-bottom:12px; }
+.rail-sort select { width:100%; min-width:0; min-height:44px; border:1px solid var(--line); border-radius:9px; padding:7px; font-size:16px; }
+.rail-bulk-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-bottom:12px; }
+.rail-bulk-actions > span { flex-basis:100%; color:var(--ink); }
+.bulk-person { display:block; position:relative; padding-top:30px; cursor:pointer; }
+.bulk-person input { position:absolute; top:5px; left:5px; width:20px; height:20px; margin:0; accent-color:var(--brand); }
+.bulk-person:has(input:checked) { outline:2px solid var(--brand); outline-offset:-2px; }
+.bulk-person:has(input:focus-visible) { outline:3px solid var(--brand); outline-offset:-3px; }
+html[data-theme=dark] .person-action-menu .danger-link { color:#ff9cb2; }
 .brand { min-width:0; }.brand small { font-size:.64rem; }.brand-mark { flex:none; }
 .bell { font-size:inherit; }
 .setting-section { margin-bottom:12px; border:1px solid var(--line); border-radius:14px; background:var(--surface); overflow:hidden; }
@@ -32,10 +53,22 @@ input,select,textarea { color:var(--ink)!important; background:var(--surface)!im
 .hero .primary { background:#fff; color:#59436c; }
 .segmented button.active,.bottom-nav { background:var(--surface); color:var(--brand); }
 .bottom-nav { border-color:var(--line); }
+/* DOMと視覚順を揃え、全画面幅でカレンダー→追加→人物を維持する。 */
+#view-calendar .calendar-layout { grid-template-columns:minmax(0,1fr); max-width:900px; margin:0 auto; }
+#view-calendar .calendar-panel { order:0; }
+#view-calendar .calendar-add { order:1; justify-self:center; width:80%; max-width:100%; height:48px; min-height:48px; margin:0; display:flex; align-items:center; justify-content:center; text-align:center; white-space:nowrap; }
+#view-calendar .people-rail { order:2; width:100%; }
 .bottom-nav button { color:var(--muted); }
 .bottom-nav button.active,.avatar-person.selected,.person-card.selected,.transfer-routes button[aria-pressed=true] { background:var(--soft); color:var(--brand); }
 .calendar-event,.calendar-event.anniversary-event { color:var(--ink); background:var(--soft); }
 .avatar { background:var(--soft); color:var(--brand); }
+/* 人物カードだけを補正し、写真・ライトテーマの色は変更しない。 */
+html[data-theme=dark] :is(.avatar-person,.person-card) { background:var(--surface); color:var(--ink); border-color:var(--line); }
+html[data-theme=dark] :is(.avatar-person,.person-card) .avatar { background:var(--soft); color:var(--brand); }
+html[data-theme=dark] :is(.avatar-person,.person-card).selected { background:var(--soft); color:var(--ink); border-color:var(--brand); outline:2px solid var(--brand); outline-offset:-2px; }
+html[data-theme=dark] :is(.avatar-person,.person-card):hover { border-color:var(--brand); }
+html[data-theme=dark] :is(.avatar-person,.person-card):focus-visible { outline:3px solid var(--brand); outline-offset:-3px; }
+html[data-theme=dark] :is(.avatar-person,.person-card).dragging { border-color:var(--brand); outline:2px dashed var(--brand); outline-offset:-2px; }
 .event-mark { background:var(--surface)!important; }
 .day-cell.drop-target { background:var(--soft); outline-color:var(--brand); }
 .form-error,.danger-link,.required { color:#b32d4d; }

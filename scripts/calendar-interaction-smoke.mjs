@@ -5,7 +5,7 @@ export async function verifyCalendarInteractions({ evaluate, until, check, comma
   const goMonth=()=>evaluate(`(()=>{document.querySelector('[data-tab=calendar]').click();const match=document.querySelector('#month-title').textContent.match(/(\\d+)年(\\d+)月/);
     const diff=2028*12+4-(Number(match[1])*12+Number(match[2])-1);
     for(let n=0;n<Math.abs(diff);n++)document.querySelector(diff>0?'#month-next':'#month-prev').click();})()`);
-  const reload=async()=>{await command('Page.reload');await until(()=>evaluate('document.querySelector("#summary-grid")?.children.length===4'),'再起動');await goMonth();};
+  const reload=async()=>{await command('Page.reload');await until(()=>evaluate('Boolean(document.querySelector("#home-today-date")?.dateTime)'),'再起動');await goMonth();};
   const measure=()=>evaluate(`(()=>{const cells=[...document.querySelectorAll('.day-cell')],cell=document.querySelector('[data-date="2028-05-10"]');return {
     grid:document.querySelector('#calendar-grid').getBoundingClientRect().height,heights:[...new Set(cells.map(c=>c.getBoundingClientRect().height))],square:cells.every(c=>Math.abs(c.getBoundingClientRect().width-c.getBoundingClientRect().height)<1),
     visible:cell.querySelectorAll('.calendar-event').length,more:cell.querySelector('.more')?.textContent||'',scroll:document.documentElement.scrollWidth};})()`);
@@ -110,6 +110,8 @@ export async function verifyCalendarInteractions({ evaluate, until, check, comma
   await command('Emulation.setTouchEmulationEnabled',{enabled:true});
   await command('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[point]});await sleep(650);
   await command('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await command('Emulation.setTouchEmulationEnabled',{enabled:false});
+  check(await evaluate(`!document.querySelector('#person-action-menu').hidden&&location.hash==='#people'`),'人物長押しは操作メニュー');
+  await evaluate(`document.querySelector('#person-action-menu [data-action=move]').click()`);
   check(await evaluate(`location.hash==='#calendar'&&!document.querySelector('#clear-selection').hidden&&!document.querySelector('#detail-dialog').open
     &&document.querySelector('.avatar-person.selected')!==null&&window.getSelection().toString()===''
     &&getComputedStyle(document.querySelector('.avatar-person')).userSelect==='none'`),'人物長押し選択・文字選択抑止');

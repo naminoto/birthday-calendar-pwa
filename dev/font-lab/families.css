@@ -1,0 +1,7 @@
+html[data-font-lab=lineseedjp] { --yoribi-dev-font:"Yoribi Font Lab lineseedjp"; }
+html[data-font-lab=zenkakugothicnew] { --yoribi-dev-font:"Yoribi Font Lab zenkakugothicnew"; }
+html[data-font-lab=notosansjp] { --yoribi-dev-font:"Yoribi Font Lab notosansjp"; }
+html[data-font-lab=mplus1p] { --yoribi-dev-font:"Yoribi Font Lab mplus1p"; }
+html[data-font-lab=zenmarugothic] { --yoribi-dev-font:"Yoribi Font Lab zenmarugothic"; }
+html[data-font-lab=notoserifjp] { --yoribi-dev-font:"Yoribi Font Lab notoserifjp"; }
+html[data-font-lab] body * { font-family:var(--yoribi-dev-font),Inter,"Hiragino Sans","Yu Gothic",Meiryo,system-ui,sans-serif!important; }

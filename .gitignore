@@ -1,4 +1,5 @@
 node_modules/
+dev/font-lab/fonts/
 dist/
 *.zip
 test-artifacts/

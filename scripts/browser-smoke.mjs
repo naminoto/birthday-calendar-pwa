@@ -8,6 +8,12 @@ import { verifyCalendarRegistration } from './calendar-registration-smoke.mjs';
 import { verifyCalendarInteractions } from './calendar-interaction-smoke.mjs';
 import { verifyYoribiUI } from './yoribi-smoke.mjs';
 import { verifyDayListGestures } from './day-list-smoke.mjs';
+import { verifyHome } from './home-smoke.mjs';
+import { verifyBirthdayUI } from './birthday-ui-smoke.mjs';
+import {verifyPersonActions} from './person-actions-smoke.mjs';
+import {verifyRailManagement} from './rail-management-smoke.mjs';
+import {verifyCalendarTaps} from './calendar-tap-smoke.mjs';
+import {verifyRestoreLayout} from './restore-layout-smoke.mjs';
 
 const prefix = '/birthday-circle/', root = resolve('dist');
 const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
@@ -73,7 +79,7 @@ try {
     if(event.target instanceof HTMLImageElement)window.__reportImageFailure(JSON.stringify({src:event.target.src,
       parent:event.target.parentElement?.className,context:event.target.closest('[id]')?.id,connected:event.target.isConnected}));},true);` });
   await command('Page.navigate', { url: baseUrl });
-  await until(() => evaluate('document.querySelector("#summary-grid")?.children.length === 4'), '初期ホーム');
+  await until(() => evaluate('Boolean(document.querySelector("#home-today-date")?.dateTime)'), '初期ホーム');
   await until(() => evaluate('Boolean(navigator.serviceWorker.controller)'), '初回Service Worker制御');
   check(await evaluate('document.querySelector("#update-banner").hidden'),
     '初回インストールを更新と誤認しました。');
@@ -111,7 +117,7 @@ try {
     input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
   await until(() => evaluate('document.documentElement.lang === "en" && document.querySelector("#view-settings h1").textContent === "Settings & data"'), '英語切替');
   const english = await evaluate(`(() => ({lang:document.documentElement.lang,
-    hero:document.querySelector('.hero h1').textContent,
+    todayHeading:document.querySelector('#home-today-title').textContent,
     calendar:document.querySelector('#view-calendar h1').textContent,
     settings:document.querySelector('#view-settings h1').textContent,
     backup:document.querySelector('#backup-settings h2').textContent,
@@ -129,7 +135,7 @@ try {
           found.push([node.parentElement?.tagName,node.parentElement?.id||node.parentElement?.className,node.textContent.trim()]);}
       return found.slice(0,80);})(),
   }))()`);
-  check(english.hero === 'Keep meaningful days close.' && english.calendar === 'Birthday & anniversary calendar'
+  check(english.todayHeading === "Today's events" && english.calendar === 'Birthday & anniversary calendar'
     && english.backup === 'Backup & restore' && english.form.startsWith('Display name')
     && english.crop === 'Adjust image' && english.version === APP_VERSION && english.category === 'Pet'
     && english.residualText.length === 0,
@@ -166,18 +172,25 @@ try {
     '英語バリデーションエラーが表示されません。');
   await evaluate('document.querySelector("#person-dialog [data-close]").click()');
   await command('Page.reload');
-  await until(() => evaluate('document.documentElement.lang === "en" && document.querySelector("#summary-grid")?.children.length === 4'), '英語設定保持');
+  await until(() => evaluate('document.documentElement.lang === "en" && Boolean(document.querySelector("#home-today-date")?.dateTime)'), '英語設定保持');
   await evaluate(`(()=>{document.querySelector('[data-tab=settings]').click();const input=document.querySelector('#language-choice');
     input.value='ja';input.dispatchEvent(new Event('change',{bubbles:true}));document.querySelector('[data-tab=home]').click();})()`);
   await until(() => evaluate('document.documentElement.lang === "ja"'), '日本語へ戻す');
   await command('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
   await sleep(200);
+  const restoreLayout=await verifyRestoreLayout({evaluate,until,check,command,sleep});
+  const calendarTaps=await verifyCalendarTaps({evaluate,until,check,command,sleep});
   const calendarRegistration = await verifyCalendarRegistration({ evaluate, until, check });
   const yoribi = await verifyYoribiUI({evaluate,until,check,command,screenshot:async name=>{mkdirSync('test-artifacts',{recursive:true});writeFileSync(`test-artifacts/${name}.png`,Buffer.from((await command('Page.captureScreenshot',{format:'png'})).data,'base64'));}});
   const calendarInteractions = await verifyCalendarInteractions({ evaluate, until, check, command, sleep,
     screenshot:async name=>{mkdirSync('test-artifacts',{recursive:true});writeFileSync(`test-artifacts/${name}.png`,Buffer.from((await command('Page.captureScreenshot',{format:'png'})).data,'base64'));} });
   const dayListGestures = await verifyDayListGestures({evaluate,until,check,command,sleep,
     screenshot:async name=>{mkdirSync('test-artifacts',{recursive:true});writeFileSync(`test-artifacts/${name}.png`,Buffer.from((await command('Page.captureScreenshot',{format:'png'})).data,'base64'));}});
+  const home = await verifyHome({evaluate,until,check,command,
+    screenshot:async name=>{mkdirSync('test-artifacts',{recursive:true});writeFileSync(`test-artifacts/${name}.png`,Buffer.from((await command('Page.captureScreenshot',{format:'png'})).data,'base64'));}});
+  const birthdayUI=await verifyBirthdayUI({evaluate,until,check,command});
+  const personActions=await verifyPersonActions({evaluate,until,check,command,sleep});
+  const railManagement=await verifyRailManagement({evaluate,until,check,command,sleep});
   await evaluate(`document.querySelector('[data-tab=calendar]').click();document.querySelector('.day-cell.today .day-open').click();`);
   mkdirSync('test-artifacts', { recursive:true });
   writeFileSync('test-artifacts/calendar-day-empty-390.png', Buffer.from((await command('Page.captureScreenshot', { format:'png' })).data, 'base64'));
@@ -254,7 +267,7 @@ try {
     row.querySelector('.ann-day').value='15';row.querySelector('.ann-year').value='2024';
     row.querySelector('.ann-showAnniversary').checked=true;})()`);
   await evaluate('document.querySelector("#person-form").requestSubmit()');
-  await until(() => evaluate('document.querySelector("#summary-grid")?.children[0]?.querySelector("b")?.textContent === "1"'), '人物登録');
+  await until(() => evaluate('document.querySelector("#home-today")?.textContent.includes("ブラウザ検証")'), '人物登録');
   await until(() => evaluate('document.querySelector("#unread-badge")?.textContent === "1"'), '当日通知');
   await evaluate('document.querySelector("#bell").click()');
   await until(() => evaluate('document.querySelector("#notification-dialog").open'), '通知ダイアログ');
@@ -264,9 +277,11 @@ try {
   await until(() => evaluate('document.querySelector("#person-rail .avatar-person") !== null'), '人物レール');
   await evaluate(`(() => { const card=document.querySelector('#person-rail .avatar-person');
     const target=[...document.querySelectorAll('.day-cell')].find(x=>x.querySelector('.day-number').textContent==='15');
-    const transfer=new DataTransfer(); card.dispatchEvent(new DragEvent('dragstart',{bubbles:true,dataTransfer:transfer}));
+    const transfer=new DataTransfer(); transfer.setData('text/plain',card.dataset.personId);
     target.dispatchEvent(new DragEvent('drop',{bubbles:true,dataTransfer:transfer})); })()`);
-  await until(() => evaluate('document.querySelector("#toast").textContent.includes("15日")'), 'ドラッグ保存');
+  await until(()=>evaluate('document.querySelector("#move-dialog").open'),'ドロップ日付の確認');
+  await evaluate('document.querySelector("#move-confirm").click()');
+  await until(()=>evaluate('!document.querySelector("#move-dialog").open'),'ドラッグ保存');
   await command('Page.reload');
   await until(() => evaluate('document.querySelector("#person-rail .avatar-person") !== null'), '再読み込み');
   const persisted = await evaluate(`new Promise((resolve,reject)=>{const r=indexedDB.open('birthday-circle-local');
@@ -304,8 +319,11 @@ try {
     && calendarAvatars.marks.includes('🎂') && calendarAvatars.marks.includes('🎉') && calendarAvatars.nested === 0,
     `カレンダー画像・共有URL・種別・代替表示に問題: ${JSON.stringify(calendarAvatars)}`);
   await evaluate('document.querySelector(".calendar-event").click()');
+  check(await evaluate('document.querySelector("#detail-dialog").open && document.querySelectorAll("#detail-body .day-event-row").length>0 && !document.querySelector(".detail-top")'),
+    '人物アイコンから日付一覧を開けません。');
+  await evaluate('document.querySelector("#detail-body .day-event-row").click()');
   check(await evaluate('document.querySelector("#detail-dialog").open && document.querySelector(".detail-top h3").textContent === "ブラウザ検証"'),
-    '人物アイコンから既存の人物詳細を直接開けません。');
+    '日付一覧から既存の人物詳細を開けません。');
   await evaluate('document.querySelector("#detail-dialog [data-close]").click()');
   await evaluate(`(()=>{document.querySelector('[data-tab=people]').click();document.querySelector('#people-add').click();
     document.querySelector('#person-name').value='別カテゴリ';document.querySelector('#person-category').value='PET';
@@ -386,7 +404,7 @@ try {
   await command('Emulation.setTouchEmulationEnabled', { enabled:true });
   await command('Input.dispatchTouchEvent', { type:'touchStart', touchPoints:[touchPoint] });
   await command('Input.dispatchTouchEvent', { type:'touchEnd', touchPoints:[] });
-  await until(() => evaluate('document.querySelector("#detail-dialog").open && !!document.querySelector(".detail-top h3")'), 'アイコン実タップの人物詳細');
+  await until(() => evaluate('document.querySelector("#detail-dialog").open && !!document.querySelector(".day-event-row") && !document.querySelector(".detail-top h3")'), 'アイコン実タップの日付一覧');
   await evaluate('document.querySelector("#detail-dialog [data-close]").click();window.scrollTo(0,0)');
   await command('Emulation.setTouchEmulationEnabled', { enabled:false });
   mkdirSync('test-artifacts', { recursive:true });
@@ -607,7 +625,7 @@ try {
     restoredName, restoredImages, offline: true, pc, mobile, calendarFilter,
     mobileViews, distribution, orientation, english, peopleAfterUpdate, imagesAfterUpdate, cachesAfterUpdate,
     calendarAvatars,calendarOverflow,calendarReuse,calendarReplacement,calendarGeometry,calendarRegistration,calendarInteractions,pcDateRegistration,yoribi,
-    waitingCache, settingsAfterUpdate, updateReloads,dayListGestures,
+    waitingCache, settingsAfterUpdate, updateReloads,dayListGestures,home,birthdayUI,personActions,railManagement,calendarTaps,restoreLayout,
     consoleErrors: errors.length, externalRequests: externalRequests.length }));
 } finally {
   socket?.close(); child?.kill(); server.close();

@@ -33,7 +33,7 @@ export async function verifyCalendarRegistration({ evaluate, until, check }) {
     await closeForm();
     await until(() => evaluate('document.activeElement.classList.contains("day-open")'), 'キャンセル後の日付フォーカス');
     check((await people()).length === 0, 'キャンセルで人物を作成しています。');
-    await evaluate('document.querySelector("#home-add").click()');
+    await evaluate('document.querySelector("[data-tab=calendar]").click();document.querySelector("#calendar-add").click()');
     check(await evaluate('document.querySelector("#person-birth-month").value === "" && document.querySelector("#person-birth-day").value === "" && document.querySelector("#person-birth-year").value === ""'), '通常追加に前回の日付が残っています。');
     await closeForm();
   }
@@ -57,8 +57,8 @@ export async function verifyCalendarRegistration({ evaluate, until, check }) {
   check(created.anniversaries[0].year === null && created.anniversaries[0].month === 2
     && created.anniversaries[0].day === 29 && !created.hasImage, '生年または変更後の誕生日が不正です。');
   check(await evaluate('document.querySelector("#calendar-category").value === "ALL" && document.querySelector("#calendar-event-type").value === "ALL" && document.querySelector(".calendar-event .avatar").textContent === "日" && location.hash === "#calendar"'), '登録後に人物がカレンダーへ表示されません。');
-  await evaluate(`(()=>{document.querySelector('.calendar-event').click();document.querySelector('#detail-edit').click();
-    document.querySelector('#person-birth-month').value='12';document.querySelector('#person-birth-day').value='31';
+  await evaluate(`(()=>{document.querySelector('.calendar-event').click();document.querySelector('#detail-body .day-event-row').click();document.querySelector('#detail-edit').click();
+    document.querySelector('#person-birth-month').value='12';document.querySelector('#person-birth-month').dispatchEvent(new Event('change'));document.querySelector('#person-birth-day').value='31';
     document.querySelector('#person-form').requestSubmit();})()`);
   await until(async () => (await people())[0].anniversaries[0].month === 12
     && await evaluate('document.querySelector("#people-list .person-card").textContent.includes("12月31日")'), '登録後の誕生日編集');

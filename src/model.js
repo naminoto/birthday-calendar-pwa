@@ -1,5 +1,5 @@
 export const CATEGORIES = Object.freeze({
-  X_FRIEND: 'Xの友だち', REAL_FRIEND: 'リアルの友だち',
+  X_FRIEND: 'Xの友だち', REAL_FRIEND: '現実の知り合い',
   CHARACTER: 'キャラクター', PET: 'ペット', OTHER: 'その他',
 });
 export const ANNIVERSARY_TYPES = Object.freeze({
@@ -9,6 +9,9 @@ export const ANNIVERSARY_TYPES = Object.freeze({
 export const TIMINGS = [7, 3, 1, 0];
 export const DEFAULT_SETTINGS = Object.freeze({ enabled: true, seven: true, three: true, one: true, today: true });
 const DAY_MS = 86400000;
+// Date.UTCの0〜99年の特殊扱いを避け、既存の4桁西暦と数値保存を維持する。
+export const BIRTH_YEAR_MIN = 100;
+export const BIRTH_YEAR_MAX = 9999;
 
 export function tokyoToday(now = new Date()) {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -154,8 +157,10 @@ export function normalizePerson(input, existing = null, now = new Date().toISOSt
   const anniversaries = (input.anniversaries ?? []).map((item) => {
     const month = Number(item.month); const day = Number(item.day);
     const year = item.year === '' || item.year == null ? null : Number(item.year);
+    if (item.type==='BIRTHDAY' && year!==null && (!['string','number'].includes(typeof item.year)||typeof item.year==='string'&&!/^\d{3,4}$/.test(item.year)
+      || !Number.isInteger(year)||year<BIRTH_YEAR_MIN||year>BIRTH_YEAR_MAX)) throw new Error('birthYearInvalid');
     if (!(item.type in ANNIVERSARY_TYPES) || !validMonthDay(month, day)
-      || (year !== null && (!Number.isInteger(year) || year < 1900 || year > 2100))
+      || (year !== null && item.type!=='BIRTHDAY' && (!Number.isInteger(year) || year < 1900 || year > 2100))
       || (year !== null && new Date(Date.UTC(year, month - 1, day)).getUTCDate() !== day)) {
       throw new Error('記念日の種類または日付が正しくありません。');
     }

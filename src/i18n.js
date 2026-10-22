@@ -2,6 +2,10 @@ import { CATEGORIES, ANNIVERSARY_TYPES } from './model.js';
 
 const messages = {
   ja: {
+    managePeople:'管理',bulkDeleteMode:'複数選択して削除',deleteSelected:'選択した人物を削除',selectPerson:'{name}を選択',selectedPeopleCount:'{count}人を選択中',railBulkHelp:'削除する人物を選択してください。このモードでは日付へのドラッグはできません。',
+    bulkDeleteQuestion:'次の{count}人を削除しますか？\n{names}\n\n人物・画像・誕生日・記念日・通知を削除します。誕生日の登録解除ではありません。',peopleDeleted:'{count}人を削除しました。',
+    railSort_nameAsc:'名前順（昇順）',railSort_nameDesc:'名前順（降順）',railSort_birthday:'誕生日が近い順',railSort_newest:'登録が新しい順',railSort_oldest:'登録が古い順',
+    todayEvents:'今日の予定', noTodayEvents:'今日は登録された予定がありません。',
     dayDragHelp:'長押しして上下で並び替え。一覧の上へ出すとカレンダーへ移動できます。キーボードはAlt＋↑↓。',
     orderSaved:'予定の表示順を保存しました。', orderInvalid:'予定が変更されています。一覧を開き直してください。',
     appName:'Yoribi', appTitle:'Yoribi（ヨリビ）', appearanceTitle:'外観・言語', appInfo:'アプリ情報・更新',
@@ -20,7 +24,8 @@ const messages = {
     notifyOn:'通知ON', notifyOff:'通知OFF', anniversaryYears:'{years}周年',
     annNoticeToday:'今日は{name}の「{title}」です', annNoticeTomorrow:'明日は{name}の「{title}」です',
     annNoticeFuture:'{name}の「{title}」まであと{days}日です',
-    persons:'人物', allPeople:'全員', unregistered:'未登録', railHelp:'PCはアイコンをドラッグ。スマホは人物を選んで日付をタップできます。',
+    persons:'人物', allPeople:'全員', unregistered:'未登録', railHelp:'PCはドラッグ、スマホは長押しして日付へ移動。⋯から編集・削除・日付選択ができます。',
+    personActions:'{name}の操作',menuMoveDate:'日付を移動',menuEditPerson:'人物を編集',menuDeletePerson:'人物を削除',moveSelectedEvent:'{name}の選択した予定をこの日に移動',selectedEventHint:'{name}の「{event}」の移動先日付をタップしてください。',
     dayHint:'日付をタップすると、その日の人物を確認できます。', personList:'人物一覧',
     search:'検索', searchPlaceholder:'名前・ユーザー名・メモ', category:'カテゴリ', month:'月', all:'すべて',
     birthday:'誕生日', registered:'登録済み', sort:'並び順', sortName:'名前順', sortNext:'次回誕生日順', sortRecent:'最近編集した順',
@@ -52,6 +57,8 @@ const messages = {
     privacy:'このアプリはログイン・クラウド同期・X APIを使用しません。別端末へ移すときはZIPを使ってください。ブラウザの「サイトデータ削除」ではデータが失われます。',
     personAdd:'人物を追加', personEdit:'人物を編集', required:'必須', displayName:'表示名', series:'作品名・所属',
     birthMonth:'誕生月', birthDay:'誕生日', birthYear:'誕生年（任意）', birthYearPlaceholder:'例: 1998',
+    birthYearMode:'誕生年の入力方法',yearSelectMode:'一覧から選択',yearCustomMode:'自由入力',
+    birthYearInvalid:'誕生年は100〜9999の整数の西暦年で入力してください。',
     showAge:'年齢を表示', username:'X username（任意）', xUrl:'XプロフィールURL（任意）', avatar:'プロフィール画像',
     avatarHelp:'選択後に位置を調整し、512pxの正方形に圧縮します。', removeAvatar:'現在の画像を削除', memo:'メモ',
     otherAnniversaries:'その他の記念日', relatedUrls:'関連URL', add:'＋ 追加', addAnniversary:'＋ 記念日を追加', deletePerson:'人物を削除', save:'保存する',
@@ -63,18 +70,18 @@ const messages = {
     previewNew:'切り抜き後のプレビュー', previewCurrent:'現在の画像',
     prevMonth:'前月', nextMonth:'次月', grid:'月間カレンダー',
     day0:'日', day1:'月', day2:'火', day3:'水', day4:'木', day5:'金', day6:'土',
-    cat_X_FRIEND:'Xの友だち', cat_REAL_FRIEND:'リアルの友だち', cat_CHARACTER:'キャラクター', cat_PET:'ペット', cat_OTHER:'その他',
+    cat_X_FRIEND:'Xの友だち', cat_REAL_FRIEND:'現実の知り合い', cat_CHARACTER:'キャラクター', cat_PET:'ペット', cat_OTHER:'その他',
     ann_BIRTHDAY:'誕生日', ann_OSHI_START:'推し始めた日', ann_FRIEND_SINCE:'友だちになった日', ann_WORK_RELEASE:'作品公開日', ann_WEDDING_ANNIVERSARY:'結婚記念日', ann_CUSTOM:'記念日',
     todayBirthdays:'今日の誕生日', todaySub:'きょう、お祝いの日', sevenSub:'もうすぐお祝い', monthBirthdays:'今月の誕生日', monthSub:'この月の登録数', nextBirthday:'次の誕生日', noNext:'まだ登録がありません',
     daysToday:'今日', daysTomorrow:'明日', daysUntil:'あと{days}日',
     noUpcoming:'30日以内の誕生日はありません。', noOtherUpcoming:'14日以内のその他の記念日はありません。',
     noPeople:'人物がいません。', selectedHint:'{name}の誕生日にする日付をタップしてください。',
-    personSelected:'{name}を選択しました。日付をタップしてください。', railTitle:'{name}の詳細を開く。長押し、またはShift+Enterで誕生日の日付を選ぶ',
+    personSelected:'{name}を選択しました。日付をタップしてください。', railTitle:'{name}の詳細を開く。⋯で操作、Shift+Enterで誕生日の日付を選ぶ',
     peopleCount:'{count}人', peopleShown:'{count}人を表示', noMatches:'条件に合う人物はいません。',
     noBirthdays:'該当する誕生日はありません。', birthdayUnregistered:'誕生日未登録',
     dateMonth:'{year}年{month}月', dateDay:'{month}月{day}日', dateYear:'{year}年', ageApprox:'{age}歳（概算）',
     dayAria:'{month}月{day}日、予定{count}件', dayPeople:'{month}月{day}日の予定',
-    calendarEventDetail:'{name}・{event}の人物詳細を開く',
+    calendarEventList:'{name}・{event}がある日の予定一覧を開く',
     calendarMoreEvents:'省略した予定{count}件を含む、この日の全予定を表示',
     emptyDay:'この日の予定はありません', addOnDate:'この日に新しい人物を登録',
     clearSelection:'選択を解除', moveTitle:'予定の日付を変更', moveConfirm:'変更する', saving:'保存しています…',
@@ -103,6 +110,10 @@ const messages = {
     workerFailed:'Service Workerを登録できませんでした。',
   },
   en: {
+    managePeople:'Manage',bulkDeleteMode:'Select multiple to delete',deleteSelected:'Delete selected people',selectPerson:'Select {name}',selectedPeopleCount:'{count} selected',railBulkHelp:'Select people to delete. Dragging to dates is disabled in this mode.',
+    bulkDeleteQuestion:'Delete these {count} people?\n{names}\n\nTheir profiles, images, birthdays, anniversaries and notifications will be deleted. This does not just clear birthdays.',peopleDeleted:'Deleted {count} people.',
+    railSort_nameAsc:'Name (A–Z)',railSort_nameDesc:'Name (Z–A)',railSort_birthday:'Next birthday',railSort_newest:'Newest registered',railSort_oldest:'Oldest registered',
+    todayEvents:"Today's events", noTodayEvents:'No events scheduled for today.',
     dayDragHelp:'Hold and drag up/down to reorder. Drag above the list to move onto the calendar. Keyboard: Alt + ↑/↓.',
     orderSaved:'Event order saved.', orderInvalid:'Events have changed. Please reopen the list.',
     appName:'Yoribi', appTitle:'Yoribi', appearanceTitle:'Appearance & language', appInfo:'About & updates',
@@ -121,7 +132,8 @@ const messages = {
     notifyOn:'Reminders on', notifyOff:'Reminders off', anniversaryYears:'{years} years',
     annNoticeToday:'Today is {name}’s “{title}”', annNoticeTomorrow:'Tomorrow is {name}’s “{title}”',
     annNoticeFuture:'{name}’s “{title}” is in {days} days',
-    persons:'People', allPeople:'Everyone', unregistered:'Not set', railHelp:'Drag an avatar on a computer, or select a person and tap a date on your phone.',
+    persons:'People', allPeople:'Everyone', unregistered:'Not set', railHelp:'Drag on a computer, or hold and drag on a phone. Use ⋯ to edit, delete, or choose a date.',
+    personActions:'Actions for {name}',menuMoveDate:'Move date',menuEditPerson:'Edit person',menuDeletePerson:'Delete person',moveSelectedEvent:'Move the selected event for {name} to this date',selectedEventHint:'Tap the destination date for {name}’s “{event}”.',
     dayHint:'Tap a date to see the people celebrating.', personList:'People',
     search:'Search', searchPlaceholder:'Name, username or note', category:'Category', month:'Month', all:'All',
     birthday:'Birthday', registered:'Registered', sort:'Sort by', sortName:'Name', sortNext:'Next birthday', sortRecent:'Recently edited',
@@ -153,6 +165,8 @@ const messages = {
     privacy:'No login, cloud sync or X API is used. Use a ZIP to move data to another device. Clearing browser site data will erase local data.',
     personAdd:'Add person', personEdit:'Edit person', required:'Required', displayName:'Display name', series:'Series / group',
     birthMonth:'Birth month', birthDay:'Birth day', birthYear:'Birth year (optional)', birthYearPlaceholder:'e.g. 1998',
+    birthYearMode:'Birth year input method',yearSelectMode:'Select a year',yearCustomMode:'Enter a year',
+    birthYearInvalid:'Enter a whole calendar year from 100 to 9999.',
     showAge:'Show age', username:'X username (optional)', xUrl:'X profile URL (optional)', avatar:'Profile image',
     avatarHelp:'Adjust the image before saving a compressed 512px square.', removeAvatar:'Remove current image', memo:'Notes',
     otherAnniversaries:'Other anniversaries', relatedUrls:'Related URLs', add:'+ Add', addAnniversary:'+ Add anniversary', deletePerson:'Delete person', save:'Save',
@@ -164,18 +178,18 @@ const messages = {
     previewNew:'Cropped preview', previewCurrent:'Current image',
     prevMonth:'Previous month', nextMonth:'Next month', grid:'Monthly calendar',
     day0:'Sun', day1:'Mon', day2:'Tue', day3:'Wed', day4:'Thu', day5:'Fri', day6:'Sat',
-    cat_X_FRIEND:'X friend', cat_REAL_FRIEND:'Real-life friend', cat_CHARACTER:'Character', cat_PET:'Pet', cat_OTHER:'Other',
+    cat_X_FRIEND:'X friend', cat_REAL_FRIEND:'In-person acquaintances', cat_CHARACTER:'Character', cat_PET:'Pet', cat_OTHER:'Other',
     ann_BIRTHDAY:'Birthday', ann_OSHI_START:'Started following', ann_FRIEND_SINCE:'Became friends', ann_WORK_RELEASE:'Work release', ann_WEDDING_ANNIVERSARY:'Wedding anniversary', ann_CUSTOM:'Anniversary',
     todayBirthdays:"Today's birthdays", todaySub:'Celebrate today', sevenSub:'Coming soon', monthBirthdays:'Birthdays this month', monthSub:'Registered this month', nextBirthday:'Next birthday', noNext:'None registered yet',
     daysToday:'Today', daysTomorrow:'Tomorrow', daysUntil:'In {days} days',
     noUpcoming:'No birthdays in the next 30 days.', noOtherUpcoming:'No other anniversaries in the next 14 days.',
     noPeople:'No people yet.', selectedHint:'Tap a date for {name}’s birthday.',
-    personSelected:'Selected {name}. Tap a date.', railTitle:'Open {name}’s details. Hold or press Shift+Enter to choose a birthday date',
+    personSelected:'Selected {name}. Tap a date.', railTitle:'Open {name}’s details. Use ⋯ for actions or Shift+Enter to choose a birthday date',
     peopleCount:'{count} people', peopleShown:'Showing {count} people', noMatches:'No people match these filters.',
     noBirthdays:'No matching birthdays.', birthdayUnregistered:'Birthday not set',
     dateMonth:'{month}/{year}', dateDay:'{month}/{day}', dateYear:'{year}', ageApprox:'About {age} years old',
     dayAria:'{month}/{day}, {count} events', dayPeople:'Events on {month}/{day}',
-    calendarEventDetail:'Open {name}’s details · {event}',
+    calendarEventList:'Open events on this date · {name} · {event}',
     calendarMoreEvents:'Show all events on this day, including {count} hidden events',
     emptyDay:'No events on this date', addOnDate:'Add a new person on this date',
     clearSelection:'Clear selection', moveTitle:'Change event date', moveConfirm:'Change date', saving:'Saving…',
@@ -285,16 +299,19 @@ const errorEnglish = {
 };
 export function errorText(error) {
   const message = String(error?.message ?? error ?? '');
-  if (message === 'orderInvalid') return t('orderInvalid');
+  if (message === 'orderInvalid'||message === 'birthYearInvalid') return t(message);
   return language === 'en' ? errorEnglish[message] ?? message : message;
 }
 
 // HTMLの既存構造を変えずに、見出し・ラベル・説明・ariaを同じ辞書から更新する。
 const staticText = [
   ['.brand strong','appName'],['#theme-label','theme'],
-  ['.skip','skip'],['.brand small','tagline'],['.hero h1','heroTitle'],['.hero > p:not(.eyebrow)','heroText'],
+  ['.skip','skip'],['.brand small','tagline'],
+  ['#home-today-title','todayEvents'],['#home-next-title','nextBirthday'],
+  ['#home-upcoming-title','upcoming'],['#home-upcoming-range','within30'],
+  ['#home-anniversaries-title','otherUpcoming'],['#home-anniversaries-range','within14'],
   ['#update-message','updateAvailable'],['#update-later','updateLater'],['#update-app','updateNow'],
-  ['#home-add','addPerson'],
+  ['#calendar-add','addPerson'],
   ['#view-calendar .page-heading h1','calendarTitle'],['#calendar-today','thisMonth'],
   ['.people-rail h2','persons'],['[data-rail-filter="all"]','allPeople'],['[data-rail-filter="unregistered"]','unregistered'],
   ['.people-rail .help','railHelp'],['#calendar-category-label','category'],
@@ -317,7 +334,7 @@ const staticText = [
   ['#person-form > label:nth-of-type(1)','displayName'],['#person-form > label:nth-of-type(2)','category'],
   ['#person-form > label:nth-of-type(3)','series'],['#person-form .form-row:nth-of-type(1) label:nth-child(1)','birthMonth'],
   ['#person-form .form-row:nth-of-type(1) label:nth-child(2)','birthDay'],
-  ['#person-form .form-row:nth-of-type(2) label:nth-child(1)','birthYear'],
+  ['#birth-year-label','birthYear'],
   ['#person-form .form-row:nth-of-type(2) label:nth-child(2)','showAge'],
   ['#person-form > label:nth-of-type(4)','username'],['#person-form > label:nth-of-type(5)','xUrl'],
   ['#person-form > label:nth-of-type(6)','avatar'],['#person-image + small','avatarHelp'],
@@ -352,11 +369,6 @@ export function applyStaticTranslations() {
       if (ownText) ownText.textContent = `${t(key)} `;
     } else node.textContent = t(key);
   }
-  const homeHeadings = document.querySelectorAll('#view-home .section-heading');
-  homeHeadings[0].querySelector('h2').textContent = t('upcoming');
-  homeHeadings[0].querySelector('span').textContent = t('within30');
-  homeHeadings[1].querySelector('h2').textContent = t('otherUpcoming');
-  homeHeadings[1].querySelector('span').textContent = t('within14');
   const formHeadings = document.querySelectorAll('#person-form .section-heading h3');
   formHeadings[0].textContent = t('otherAnniversaries');
   formHeadings[1].textContent = t('relatedUrls');

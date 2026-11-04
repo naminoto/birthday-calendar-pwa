@@ -20,9 +20,9 @@ const root = dist.pathname.startsWith('/') && process.platform === 'win32'
 // 開発サーバーのHMRは妨げず、配布HTMLにだけ外部通信を禁止するCSPを加える。
 const indexFile = join(root, 'index.html');
 const html = await readFile(indexFile, 'utf8');
-const csp = `<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">`;
+const csp = `<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob:; font-src 'self'; connect-src 'self'; worker-src 'self'; manifest-src 'self'; frame-src 'none'; media-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">`;
 if (!html.includes('http-equiv="Content-Security-Policy"')) {
-  await writeFile(indexFile, html.replace('</head>', `  ${csp}\n</head>`));
+  await writeFile(indexFile, html.replace('<meta charset="UTF-8">', `<meta charset="UTF-8">\n  ${csp}`));
 }
 const files = (await filesIn(root)).sort();
 const paths = files.map((file) => `./${relative(root, file).split(sep).join('/')}`);

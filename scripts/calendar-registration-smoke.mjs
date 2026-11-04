@@ -29,7 +29,7 @@ export async function verifyCalendarRegistration({ evaluate, until, check }) {
       day:document.querySelector('#person-birth-day').value,year:document.querySelector('#person-birth-year').value,
       focused:document.activeElement.id,dialogs:document.querySelectorAll('dialog[open]').length})`);
     check(form.month === String(month) && form.day === String(day) && form.year === ''
-      && form.focused === 'person-name' && form.dialogs === 1, `日付の初期値かダイアログが不正: ${JSON.stringify(form)}`);
+      && form.focused === 'person-dialog-title' && form.dialogs === 1, `日付の初期値かダイアログが不正: ${JSON.stringify(form)}`);
     await closeForm();
     await until(() => evaluate('document.activeElement.classList.contains("day-open")'), 'キャンセル後の日付フォーカス');
     check((await people()).length === 0, 'キャンセルで人物を作成しています。');

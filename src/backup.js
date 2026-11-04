@@ -1,6 +1,7 @@
-import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate';
-import { all, loadSettings, replaceAllData, storageSummary } from './db.js';
-import { loadLanguage, loadAppearance } from './db.js';
+import { zipSync, strToU8, strFromU8 } from 'fflate';
+import { readZip,zipDirectory } from './zip-reader.js';
+import { validateBackupImage } from './images.js';
+import { replaceAllData } from './db.js';
 import { normalizeAppearance } from './appearance.js';
 import { DEFAULT_SETTINGS, birthdayOf, dateParts, normalizePerson, TIMINGS,
   occurrenceForYear } from './model.js';
@@ -10,7 +11,6 @@ import { APP_VERSION } from './version.js';
 export const BACKUP_FORMAT_VERSION = 1;
 export { APP_VERSION };
 const MAX_ARCHIVE_BYTES = 128 * 1024 * 1024;
-const MAX_UNPACKED_BYTES = 160 * 1024 * 1024;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 async function sha256(bytes) {
@@ -19,11 +19,17 @@ async function sha256(bytes) {
 }
 
 export async function createBackup(db) {
-  const [people, images, notifications, settings, language, appearance] = await Promise.all([
-    all(db, 'people'), all(db, 'images'), all(db, 'notifications'), loadSettings(db), loadLanguage(db), loadAppearance(db),
-  ]);
-  const integrity = await storageSummary(db);
-  if (integrity.missing.length || integrity.orphan.length) {
+  // One readonly transaction gives a coherent snapshot even when another tab edits data.
+  const names=['people','images','notifications','settings'],tx=db.transaction(names,'readonly');
+  const done=new Promise((resolve,reject)=>{tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error??new Error('backupReadFailed'));tx.onerror=()=>{};});
+  const [people,images,notifications,rows]=await Promise.all([...names.map(name=>new Promise((resolve,reject)=>{
+    const r=tx.objectStore(name).getAll();r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);
+  })),done]);
+  const settings=rows.find(r=>r.key==='notifications')?.value??{...DEFAULT_SETTINGS};
+  const language=rows.find(r=>r.key==='language')?.value==='en'?'en':'ja';
+  const appearance=normalizeAppearance(rows.find(r=>r.key==='appearance')?.value);
+  const referenced=new Set(people.filter(p=>p.hasImage).map(p=>p.id)),imageIds=new Set(images.map(i=>i.personId));
+  if ([...referenced].some(id=>!imageIds.has(id))||[...imageIds].some(id=>!referenced.has(id))) {
     throw new Error('画像の参照不整合があります。バックアップ前に状態を確認してください。');
   }
   const files = {};
@@ -48,6 +54,7 @@ export async function createBackup(db) {
   };
   files['manifest.json'] = strToU8(JSON.stringify(manifest, null, 2));
   const zipped = zipSync(files, { level: 0 });
+  zipDirectory(zipped); // 自分で書き出すZIPも読込側と同じ構造・容量制限を満たす。
   if (zipped.length > MAX_ARCHIVE_BYTES) throw new Error('バックアップZIPが上限を超えています。');
   return new Blob([zipped], { type: 'application/zip' });
 }
@@ -72,11 +79,11 @@ export function migrateBackupData(version, data) {
 
 function validateData(data, files) {
   if (!Array.isArray(data.people) || !Array.isArray(data.images)
-    || !Array.isArray(data.notifications) || !data.settings || typeof data.settings !== 'object') {
+    || !Array.isArray(data.notifications) || !data.settings || typeof data.settings !== 'object'||Array.isArray(data.settings)) {
     throw new Error('バックアップのデータ構造が正しくありません。');
   }
   const people = data.people.map((record) => {
-    if (!UUID.test(record.id)) throw new Error('人物IDの形式が正しくありません。');
+    if (!record||typeof record.id!=='string'||!UUID.test(record.id)) throw new Error('人物IDの形式が正しくありません。');
     return normalizePerson(record, record, record.updatedAt);
   });
   const personIds = new Set(people.map((person) => person.id));
@@ -130,24 +137,17 @@ function validateData(data, files) {
 // 書き込み前にZIP構造・各ハッシュ・参照整合性・形式Versionを全件確認します。
 export async function inspectBackup(file) {
   if (!file || file.size > MAX_ARCHIVE_BYTES) throw new Error('バックアップファイルが大きすぎます。');
-  let unpackedBytes = 0; let entryCount = 0; let files;
+  let files;
   try {
-    files = unzipSync(new Uint8Array(await file.arrayBuffer()), {
-      filter(info) {
-        entryCount += 1;
-        unpackedBytes += info.originalSize;
-        return entryCount <= 2000 && unpackedBytes <= MAX_UNPACKED_BYTES
-          && info.originalSize <= (info.name.startsWith('images/') ? 2 * 1024 * 1024 : 8 * 1024 * 1024);
-      },
-    });
+    files = await readZip(new Uint8Array(await file.arrayBuffer()));
   } catch { throw new Error('ZIPファイルを読み込めませんでした。'); }
-  if (entryCount > 2000 || unpackedBytes > MAX_UNPACKED_BYTES) throw new Error('ZIPの内容が大きすぎます。');
   if (!files['manifest.json'] || !files['data.json']) throw new Error('manifestまたはデータがありません。');
   let manifest; let rawData;
   try {
     manifest = JSON.parse(strFromU8(files['manifest.json']));
     rawData = JSON.parse(strFromU8(files['data.json']));
   } catch { throw new Error('manifestまたはデータJSONが壊れています。'); }
+  if(!manifest||typeof manifest!=='object'||Array.isArray(manifest)||!rawData||typeof rawData!=='object'||Array.isArray(rawData))throw new Error('バックアップのデータ構造が正しくありません。');
   if (!Number.isInteger(manifest.formatVersion) || manifest.formatVersion < 0
     || manifest.formatVersion > BACKUP_FORMAT_VERSION) {
     throw new Error('新しい形式または不明な形式のバックアップには対応していません。');
@@ -170,7 +170,9 @@ export async function inspectBackup(file) {
     }
   }
   const snapshot = validateData(migrateBackupData(manifest.formatVersion, rawData), files);
-  if (manifest.counts?.people !== snapshot.people.length || manifest.counts?.images !== snapshot.images.length) {
+  for(const image of snapshot.images)await validateBackupImage(image.blob);
+  if (manifest.counts?.people !== snapshot.people.length || manifest.counts?.images !== snapshot.images.length
+    ||manifest.counts.notifications!=null&&manifest.counts.notifications!==snapshot.notifications.length) {
     throw new Error('manifestの件数がデータと一致しません。');
   }
   return { manifest, snapshot, summary: {
@@ -180,11 +182,14 @@ export async function inspectBackup(file) {
 }
 
 export async function restoreBackup(db, prepared) {
-  await replaceAllData(db, prepared.snapshot);
-  const result = await storageSummary(db);
-  if (result.missing.length || result.orphan.length
-    || result.people !== prepared.summary.people || result.images !== prepared.summary.images) {
+  const snapshot=prepared.snapshot;
+  const people=new Set(snapshot.people.map(p=>p.id)),images=new Set(snapshot.images.map(i=>i.personId));
+  if(people.size!==snapshot.people.length||images.size!==snapshot.images.length
+    ||snapshot.people.some(p=>p.hasImage!==images.has(p.id))||snapshot.images.some(i=>!people.has(i.personId))
+    ||snapshot.people.length!==prepared.summary.people||snapshot.images.length!==prepared.summary.images){
     throw new Error('復元後の整合性確認に失敗しました。');
   }
-  return result;
+  // commit後の別read失敗を「復元失敗」と誤報しない。件数確認も同じtransaction内。
+  await replaceAllData(db, snapshot);
+  return {people:people.size,images:images.size,imageBytes:snapshot.images.reduce((n,i)=>n+i.blob.size,0),missing:[],orphan:[]};
 }

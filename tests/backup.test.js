@@ -1,4 +1,5 @@
 import 'fake-indexeddb/auto';
+import {imageFixture} from './helpers/image-fixture.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { zipSync, strToU8, unzipSync, strFromU8 } from 'fflate';
@@ -23,7 +24,7 @@ async function repackData(files, data) {
 
 test('ZIPへ画像と人物を保存し、変更後の復元で元の内容へ戻る', async () => {
   const db = await fresh();
-  const saved = await savePerson(db, fixture, { image: new Blob(['image-data'], { type: 'image/webp' }) });
+  const saved = await savePerson(db, fixture, { image: imageFixture() });
   const backup = await createBackup(db); const prepared = await inspectBackup(backup);
   assert.equal(prepared.summary.people, 1); assert.equal(prepared.summary.images, 1);
   assert.equal(prepared.manifest.formatVersion, 1);
@@ -32,7 +33,7 @@ test('ZIPへ画像と人物を保存し、変更後の復元で元の内容へ�
   await restoreBackup(db, prepared);
   assert.equal((await get(db, 'people', saved.id)).displayName, '保存さん');
   assert.equal((await get(db, 'people', saved.id)).memo, '大切なメモ');
-  assert.equal((await get(db, 'images', saved.id)).blob.size, 10);
+  assert.equal((await get(db, 'images', saved.id)).blob.size, imageFixture().size);
   assert.deepEqual((await storageSummary(db)).orphan, []);
   db.close();
 });
@@ -106,7 +107,7 @@ test('新ZIP v1は複数の記念日・通知・画像を完全復元する', as
     { type:'CUSTOM', title:'出会った日', month:5, day:10, year:2024,
       recurring:true, showAnniversary:true, notify:true },
     { type:'CUSTOM', title:'年なし', month:8, day:15, notify:false },
-  ] }, { image:new Blob(['avatar'], { type:'image/webp' }) });
+  ] }, { image:imageFixture() });
   const { synchronizeNotifications } = await import('../src/notifications.js');
   await synchronizeNotifications(db, '2027-05-03');
   const prepared = await inspectBackup(await createBackup(db));
@@ -117,7 +118,7 @@ test('新ZIP v1は複数の記念日・通知・画像を完全復元する', as
   await restoreBackup(db, prepared);
   assert.equal((await get(db, 'people', person.id)).anniversaries[1].title, '出会った日');
   assert.equal((await all(db, 'notifications')).length, 1);
-  assert.equal((await get(db, 'images', person.id)).blob.size, 6);
+  assert.equal((await get(db, 'images', person.id)).blob.size, imageFixture().size);
   db.close();
 });
 
@@ -151,7 +152,7 @@ test('旧ZIPに記念日配列がない人物は0件として復元する', asyn
 
 test('端末移行は移行元の追加・編集・削除を含む全状態で移行先を完全置換する', async () => {
   const source = await fresh(); const destination = await fresh();
-  const first = await savePerson(source, fixture, { image:new Blob(['source-image'], { type:'image/webp' }) });
+  const first = await savePerson(source, fixture, { image:imageFixture() });
   const removed = await savePerson(source, { displayName:'あとで削除', anniversaries:[] });
   await restoreBackup(destination, await inspectBackup(await createBackup(source)));
   const destinationOnly = await savePerson(destination, { displayName:'移行先だけの人物', anniversaries:[] });
@@ -179,7 +180,7 @@ test('端末移行は移行元の追加・編集・削除を含む全状態で�
   assert.equal(people[0].anniversaries.length, 3);
   assert.deepEqual(people[0].anniversaries[0].month, 2);
   assert.equal(people[0].links[0].url, 'https://example.com/');
-  assert.equal((await get(destination, 'images', first.id)).blob.size, 12);
+  assert.equal((await get(destination, 'images', first.id)).blob.size, imageFixture().size);
   assert.deepEqual(await loadSettings(destination), await loadSettings(source));
   assert.equal(await loadLanguage(destination), 'en');
   assert.deepEqual((await all(destination, 'notifications')).map((notice) => notice.id),

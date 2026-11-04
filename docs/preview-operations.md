@@ -1,5 +1,9 @@
 # Yoribi 継続テスト環境
 
+## v1.4.3候補の独立テスト運用（正式版公開後の記録）
+
+正式版v1.4.3は2026年11月4日に公開した。独立テスト版は別originの`1.4.3-candidate`として維持し、正式版と保存領域・Service Worker・公開操作を分離する。通常buildは診断機能を含まず、独立テスト版で診断が必要な場合だけ明示的な診断buildを生成する。暗号化`.yoribi`、旧ZIP、管理データ削除、iOS保存領域案内、高解像度画像、キャンセル、フォーム初期フォーカス、更新履歴の確認には架空データだけを使う。手順は[v1.4.3候補チェックリスト](v1.4.3-iphone-preview.md)を参照する。
+
 ## 現在の公開先
 
 - Organization：`yoribi-preview`（GitHub Free、naminotoがowner）
@@ -111,8 +115,9 @@ Version1.4.1・DB v3・ZIP v1を維持。表示名を「現実の知り合い / 
 
 運用：**開発 → ローカル検証 → テスト配信 → iPhone確認 → 承認後に正式版へ反映**。テストで問題があれば正式版の公開を見送る。
 
-1. ソースrepoの未commit変更を保持し、`npm test` → `npm run build`で本番監査まで成功させる。
-2. `node scripts/prepare-iphone-preview.mjs`でGit除外の新しい準備フォルダを生成する。この処理自体はネットワーク・Git操作をしない。
+1. ソースrepoの未commit変更を保持し、まず`npm test` → `npm run build`で診断を含まない正式成果物の監査まで成功させる。
+2. 通常候補はそのまま`node scripts/prepare-iphone-preview.mjs`で生成する。診断UIは含まれない。この処理自体はネットワーク・Git操作をしない。
+3. 写真ピッカー診断版が必要な場合だけ、`npm run build:preview-diagnostics`後に`node scripts/prepare-iphone-preview.mjs --avatar-diagnostics`を実行する。通常の正式buildと通常候補には診断コード・文言を含めない。
 3. `node scripts/audit-iphone-preview.mjs <生成されたフォルダ>`で公開予定repoの全ファイルを検証する。正式版distからの相違はテスト用HTML／manifest／再生成SWのみに限定する。SHA-256、原本・権利文書、ファイル許可リスト、owner・手動公開ガードを確認する。
 4. テスト用の既存作業repoを使う。現在の作業repoは`test-artifacts/iphone-preview-0bab6acf-5912-449d-958d-d8725e93265e/`。Git除外のため、なくなった場合は**テストrepoだけ**を別の承認済み作業場所へcloneできる。正式ソースrepoのoriginは付け替えない。
 5. 書込み前に、その作業repoのGitルートとoriginが`https://github.com/yoribi-preview/yoribi-test.git`であることを確認。新しい準備一式で`site/`とPREVIEW.jsonを更新し、旧ハッシュ名のJS/CSS等を残さない。`.git`を上書きせず、.gitattributesと手動Workflowを維持する。更新後の監査を再実行してからテストrepo内だけで必要ファイルをcommit/pushする。正式repo・親フォルダで`git add .`しない。

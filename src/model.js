@@ -136,7 +136,7 @@ export function normalizePerson(input, existing = null, now = new Date().toISOSt
   const displayName = String(input.displayName ?? '').trim();
   if (!displayName || displayName.length > 100) throw new Error('表示名は1〜100文字で入力してください。');
   const category = input.category ?? 'OTHER';
-  if (!(category in CATEGORIES)) throw new Error('カテゴリが正しくありません。');
+  if (!Object.hasOwn(CATEGORIES,category)) throw new Error('カテゴリが正しくありません。');
   const username = String(input.username ?? '').trim().replace(/^@/, '') || null;
   if (username && !/^[A-Za-z0-9_]{1,50}$/.test(username)) throw new Error('X usernameの形式が正しくありません。');
   let xProfileUrl = String(input.xProfileUrl ?? '').trim() || null;
@@ -159,7 +159,7 @@ export function normalizePerson(input, existing = null, now = new Date().toISOSt
     const year = item.year === '' || item.year == null ? null : Number(item.year);
     if (item.type==='BIRTHDAY' && year!==null && (!['string','number'].includes(typeof item.year)||typeof item.year==='string'&&!/^\d{3,4}$/.test(item.year)
       || !Number.isInteger(year)||year<BIRTH_YEAR_MIN||year>BIRTH_YEAR_MAX)) throw new Error('birthYearInvalid');
-    if (!(item.type in ANNIVERSARY_TYPES) || !validMonthDay(month, day)
+    if (!Object.hasOwn(ANNIVERSARY_TYPES,item.type) || !validMonthDay(month, day)
       || (year !== null && item.type!=='BIRTHDAY' && (!Number.isInteger(year) || year < 1900 || year > 2100))
       || (year !== null && new Date(Date.UTC(year, month - 1, day)).getUTCDate() !== day)) {
       throw new Error('記念日の種類または日付が正しくありません。');

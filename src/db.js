@@ -202,6 +202,8 @@ export async function markAllRead(db, now = new Date().toISOString()) {
 export async function replaceAllData(db, snapshot) {
   const appearance = normalizeAppearance(snapshot.appearance);
   const tx = db.transaction(STORES, 'readwrite');
+  const done=completed(tx);
+  try{
   for (const name of STORES) tx.objectStore(name).clear();
   for (const person of snapshot.people) tx.objectStore('people').put(person);
   for (const image of snapshot.images) tx.objectStore('images').put(image);
@@ -209,7 +211,12 @@ export async function replaceAllData(db, snapshot) {
   tx.objectStore('settings').put({ key: 'language', value: snapshot.language === 'en' ? 'en' : 'ja' });
   tx.objectStore('settings').put({ key:'appearance', value:appearance });
   for (const notice of snapshot.notifications) tx.objectStore('notifications').put(notice);
-  await completed(tx);
+  const counts={people:snapshot.people.length,images:snapshot.images.length,settings:3,notifications:snapshot.notifications.length};
+  for(const name of STORES)tx.objectStore(name).count().onsuccess=event=>{
+    if(event.target.result!==counts[name])tx.abort();
+  };
+  await done;
+  }catch(error){try{tx.abort();}catch{/* already aborted */}await done.catch(()=>{});throw error;}
 }
 
 export async function storageSummary(db) {

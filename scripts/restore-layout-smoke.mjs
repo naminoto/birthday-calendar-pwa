@@ -1,5 +1,7 @@
 import {mkdirSync,writeFileSync} from 'node:fs';
 import {zipSync,unzipSync,strFromU8,strToU8} from 'fflate';
+import {enterBackupPassword,TEST_BACKUP_PASSWORD} from './backup-password-smoke.mjs';
+import {decryptBackup} from '../src/encrypted-backup.js';
 
 // 調査用。アプリのCSS/viewport/復元処理を改変せず、空の一時プロファイルだけで実行。
 export async function verifyRestoreLayout({evaluate,until,check,command,sleep}){
@@ -24,9 +26,11 @@ export async function verifyRestoreLayout({evaluate,until,check,command,sleep}){
     await until(()=>evaluate('!document.querySelector("#person-dialog").open&&document.querySelector(".person-card")?.textContent.includes("架空の復元調査人物")'),'調査fixture');
     await evaluate(`(async()=>{const c=document.createElement('canvas');c.width=c.height=512;c.getContext('2d').fillRect(0,0,512,512);const blob=await new Promise(done=>c.toBlob(done,'image/png')),r=indexedDB.open('birthday-circle-local'),db=await new Promise(done=>r.onsuccess=()=>done(r.result)),tx=db.transaction(['people','images'],'readwrite');tx.objectStore('people').getAll().onsuccess=e=>{const p=e.target.result[0];p.hasImage=true;p.anniversaries=[{type:'BIRTHDAY',month:2,day:29,year:2000,showAge:true},{id:crypto.randomUUID(),type:'CUSTOM',title:'架空の記念日',month:3,day:1,year:2024,recurring:true,notify:false}];tx.objectStore('people').put(p);tx.objectStore('images').put({personId:p.id,blob,type:'image/png'});};await new Promise(done=>tx.oncomplete=done);db.close();})()`);
     await command('Page.reload');await until(()=>evaluate('!!document.querySelector("#app-version")?.textContent'),'調査再起動');
-    await evaluate(`(()=>{window.__layoutURL=URL.createObjectURL;window.__layoutAnchor=HTMLAnchorElement.prototype.click;URL.createObjectURL=function(blob){if(blob.type==='application/zip')window.__layoutZIP=blob;return window.__layoutURL.call(this,blob);};HTMLAnchorElement.prototype.click=function(){if(!this.download)return window.__layoutAnchor.call(this);};document.querySelector('[data-tab=settings]').click();document.querySelector('#backup-section').open=true;document.querySelector('#export-backup').click();})()`);
+    await evaluate(`(()=>{window.__layoutURL=URL.createObjectURL;window.__layoutAnchor=HTMLAnchorElement.prototype.click;URL.createObjectURL=function(blob){if(blob.type==='application/octet-stream')window.__layoutZIP=blob;return window.__layoutURL.call(this,blob);};HTMLAnchorElement.prototype.click=function(){if(!this.download)return window.__layoutAnchor.call(this);};document.querySelector('[data-tab=settings]').click();document.querySelector('#backup-section').open=true;document.querySelector('#export-backup').click();})()`);
+    await enterBackupPassword({evaluate,until});
     await until(()=>evaluate('!!window.__layoutZIP'),'復元調査ZIP');
     normalZip=await evaluate(`(async()=>{const bytes=new Uint8Array(await window.__layoutZIP.arrayBuffer());let text='';for(const b of bytes)text+=String.fromCharCode(b);return btoa(text);})()`);
+    normalZip=Buffer.from(await(await decryptBackup(new Blob([Buffer.from(normalZip,'base64')]),TEST_BACKUP_PASSWORD)).arrayBuffer()).toString('base64');
     const unzipped=unzipSync(Buffer.from(normalZip,'base64')),manifest=JSON.parse(strFromU8(unzipped['manifest.json']));
     manifest.createdAt='2026-10-22T00:00:00.'+'0'.repeat(200)+'Z';unzipped['manifest.json']=strToU8(JSON.stringify(manifest));const stressZip=Buffer.from(zipSync(unzipped)).toString('base64');
     await evaluate(`window.__restoreLayoutEvents=[];for(const target of [window,visualViewport])for(const type of ['scroll','resize'])target?.addEventListener(type,()=>{if(window.__restoreLayoutEvents.length<500)window.__restoreLayoutEvents.push({type,source:target===window?'window':'visualViewport',y:scrollY,height:innerHeight,vv:visualViewport?.height});},{passive:true});`);

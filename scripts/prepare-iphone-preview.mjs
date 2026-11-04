@@ -5,7 +5,11 @@ import {createHash,randomUUID} from 'node:crypto';
 import {join,relative,dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 const root=fileURLToPath(new URL('../',import.meta.url)),dist=join(root,'dist');
-execFileSync(process.execPath,[join(root,'scripts/audit-dist.mjs')],{cwd:root,stdio:'inherit'});
+const sourceVersion=JSON.parse(await readFile(join(root,'package.json'),'utf8')).version;
+const candidateVersion='1.4.3-candidate';
+const avatarDiagnostics=process.argv.includes('--avatar-diagnostics');
+// 既定は診断なしの正式候補build。明示フラグ時だけ診断buildを許可する。
+execFileSync(process.execPath,[join(root,'scripts/audit-dist.mjs'),...(avatarDiagnostics?['--allow-avatar-diagnostics']:[])],{cwd:root,stdio:'inherit'});
 async function walk(dir){
   const files=[];
   for(const item of await readdir(dir,{withFileTypes:true})){
@@ -31,14 +35,19 @@ await writeFile(manifestPath,JSON.stringify(manifest,null,2)+'\n');
 const htmlPath=join(site,'index.html');
 const html=await readFile(htmlPath,'utf8');
 if(!html.includes('name="apple-mobile-web-app-title" content="Yoribi"'))throw Error('Unexpected Apple title');
-await writeFile(htmlPath,html.replace('name="apple-mobile-web-app-title" content="Yoribi"','name="apple-mobile-web-app-title" content="Yoribi テスト"').replace('<title>Yoribi</title>','<title>Yoribi テスト</title>'));
-const version=JSON.parse(await readFile(join(root,'package.json'),'utf8')).version;
+const previewBanner='<div class="update-banner" id="preview-candidate-banner" role="status"><span><strong>テスト版 / Test build</strong> · v1.4.3候補</span></div>';
+await writeFile(htmlPath,html
+  .replace('<meta name="referrer" content="no-referrer">',`<meta name="referrer" content="no-referrer">\n  <meta name="yoribi-preview-version" content="${candidateVersion}">`)
+  .replace(`<meta name="yoribi-preview-version" content="${candidateVersion}">`,`<meta name="yoribi-preview-version" content="${candidateVersion}">\n  <meta name="yoribi-preview-title" content="Yoribi テスト · v1.4.3候補">`)
+  .replace('name="apple-mobile-web-app-title" content="Yoribi"','name="apple-mobile-web-app-title" content="Yoribi テスト"')
+  .replace('<title>Yoribi</title>','<title>Yoribi テスト · v1.4.3候補</title>')
+  .replace('<div class="app-shell">',`<div class="app-shell">\n    ${previewBanner}`));
 // 同じSWテンプレートで、テスト版のHTML/manifestを含む内容ハッシュを作る。
 const assets=(await walk(site)).filter(path=>relative(site,path)!=='sw.js');
 const hash=createHash('sha256');
 for(const file of assets){hash.update(relative(site,file));hash.update(await readFile(file));}
 const worker=(await readFile(join(root,'src','sw-template.js'),'utf8'))
-  .replace('__CACHE_VERSION__',hash.digest('hex').slice(0,16)).replace('__APP_VERSION__',version)
+  .replace('__CACHE_VERSION__',hash.digest('hex').slice(0,16)).replace('__APP_VERSION__',candidateVersion)
   .replace('__PRECACHE_JSON__',JSON.stringify(assets.map(file=>'./'+relative(site,file).replaceAll('\\','/'))));
 await writeFile(join(site,'sw.js'),worker);
 const files=[];
@@ -50,9 +59,18 @@ await copyFile(join(root,'docs','preview-pages.workflow.yml'),workflow);
 // 配布物・OFL原文・SHA-256を、別OSのGit checkoutでも改行変換から保護する。
 await writeFile(join(target,'.gitattributes'),'* -text\n');
 await writeFile(join(target,'PREVIEW.json'),JSON.stringify({
-  purpose:'Isolated iPhone preview; NOT published',createdAt:new Date().toISOString(),appVersion:version,
+  purpose:'Isolated iPhone preview; NOT published',createdAt:new Date().toISOString(),sourceVersion,
+  appVersion:candidateVersion,releaseChannel:'candidate',officialRelease:false,
+  avatarDiagnostics,
   productionOrigin:'https://naminoto.github.io',previewOwner:'yoribi-preview',previewUrl:'https://yoribi-preview.github.io/yoribi-test/',
-  requiresApproval:true,files,
+  requiresApproval:true,
+  candidateChanges:['Encrypted .yoribi backups and legacy ZIP restore','Managed data deletion and privacy guidance',
+    'iOS storage guidance and Safari-to-Home-Screen transfer steps','High-resolution profile-image crop, compression and cancel-state fixes',
+    'Person-form initial focus fix','Bundled release-candidate history',
+    ...(avatarDiagnostics?['Preview-only avatar picker event diagnostics']:[]),
+    'iPhone multiple photo picker with exactly-one selection safeguard',
+    'Password AutoFill-safe read-only confirmation preview'],
+  compatibility:{indexedDBVersion:3,zipFormatVersion:1,productionUnchanged:true},files,
 },null,2)+'\n');
-console.log(JSON.stringify({preparedOnly:true,published:false,output:target,appVersion:version,
-  siteFiles:files.length,siteBytes:files.reduce((sum,file)=>sum+file.bytes,0),next:'Read docs/iphone-preflight.md; approval required before GitHub actions'},null,2));
+console.log(JSON.stringify({preparedOnly:true,published:false,output:target,sourceVersion,appVersion:candidateVersion,
+  avatarDiagnostics,siteFiles:files.length,siteBytes:files.reduce((sum,file)=>sum+file.bytes,0),next:'Read docs/iphone-preflight.md; approval required before GitHub actions'},null,2));

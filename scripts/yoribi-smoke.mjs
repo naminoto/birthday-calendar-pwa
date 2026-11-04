@@ -2,7 +2,7 @@ export async function verifyYoribiUI({evaluate,until,check,command,screenshot=as
   await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
   check(await evaluate(`document.title==='Yoribi（ヨリビ）'&&document.querySelector('.brand strong').textContent==='Yoribi'`),'Yoribi表示名');
   await evaluate(`document.querySelector('#header-settings').click()`);
-  check(await evaluate(`location.hash==='#settings'&&document.querySelectorAll('.setting-section').length===5
+  check(await evaluate(`location.hash==='#settings'&&document.querySelectorAll('.setting-section').length===6
     &&[...document.querySelectorAll('.setting-section')].every(s=>!s.open)`),'初期設定は全セクション折りたたみ');
   await screenshot('yoribi-settings-closed-390');
   await evaluate(`document.querySelector('#appearance-section summary').focus()`);
@@ -47,5 +47,5 @@ export async function verifyYoribiUI({evaluate,until,check,command,screenshot=as
   check(icons.results.every(icon=>icon.correct&&icon.corners.every(c=>c[3]===255&&!(c[0]===255&&c[1]===255&&c[2]===255))),'PNG寸法・不透明四隅・白余白なし');
   check(await evaluate(`document.querySelectorAll('.header-actions .outline-icon').length===2&&document.querySelector('.bottom-nav [data-tab=settings] svg')!==null`),'統一線画アイコン');
   await evaluate(`document.querySelectorAll('.setting-section').forEach(s=>s.open=false);document.querySelector('[data-tab=home]').click()`);
-  return {name:'Yoribi',sections:5,keyboard:true,themePersisted:true,systemTheme:true,darkContrast:contrast,icons};
+  return {name:'Yoribi',sections:6,keyboard:true,themePersisted:true,systemTheme:true,darkContrast:contrast,icons};
 }

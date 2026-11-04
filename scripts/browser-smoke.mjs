@@ -14,6 +14,10 @@ import {verifyPersonActions} from './person-actions-smoke.mjs';
 import {verifyRailManagement} from './rail-management-smoke.mjs';
 import {verifyCalendarTaps} from './calendar-tap-smoke.mjs';
 import {verifyRestoreLayout} from './restore-layout-smoke.mjs';
+import {verifyBackupSecurity} from './backup-security-smoke.mjs';
+import {verifyPrivacyGuidance} from './privacy-guidance-smoke.mjs';
+import {enterBackupPassword} from './backup-password-smoke.mjs';
+import {verifyIOSStorageGuidance} from './ios-storage-smoke.mjs';
 
 const prefix = '/birthday-circle/', root = resolve('dist');
 const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
@@ -96,6 +100,7 @@ try {
   check(distribution.manifestStatus === 200 && distribution.manifest.start_url === './'
     && distribution.manifest.scope === './' && distribution.manifest.display === 'standalone'
     && distribution.statuses.every(status => status === 200), 'manifestまたは配布アセット取得に失敗しました。');
+  const iosStorageGuidance=await verifyIOSStorageGuidance({evaluate,until,check,command,baseUrl});
   const orientation = await evaluate(`(async()=>{
     const canvas=document.createElement('canvas');canvas.width=80;canvas.height=40;
     const context=canvas.getContext('2d');context.fillStyle='red';context.fillRect(0,0,40,40);
@@ -112,6 +117,26 @@ try {
   check(orientation.image[0] === 40 && orientation.image[1] === 80
     && JSON.stringify(orientation.image) === JSON.stringify(orientation.bitmap),
     'EXIF Orientationのプレビュー/Canvas向きが一致しません。');
+  const releaseHistory = await evaluate(`(()=>{
+    document.querySelector('[data-tab=settings]').click();
+    const section=document.querySelector('#info-section');section.open=true;
+    const history=document.querySelector('#release-history'),initiallyClosed=!history.open;history.open=true;
+    const versions=[...history.querySelectorAll('.release-entry')].map(node=>node.dataset.version);
+    const originalTheme=document.documentElement.dataset.theme;
+    const layouts=['light','dark'].map(theme=>{document.documentElement.dataset.theme=theme;
+      const entry=history.querySelector('.release-entry');return {theme,overflow:history.scrollWidth>history.clientWidth,
+        color:getComputedStyle(entry).color,background:getComputedStyle(entry).backgroundColor};});
+    document.documentElement.dataset.theme=originalTheme;
+    return {initiallyClosed,versions,title:history.querySelector('summary').textContent.trim(),
+      category:history.querySelector('[data-release-category]').textContent.trim(),
+      firstDate:history.querySelector('.release-entry time')?.dateTime,
+      pending:history.querySelector('[data-release-key=releaseDatePending]')?.textContent.trim(),layouts};
+  })()`);
+  check(releaseHistory.initiallyClosed && releaseHistory.versions[0]===APP_VERSION
+    && releaseHistory.versions.includes('1.4.3') && releaseHistory.title==='更新履歴'
+    && releaseHistory.firstDate==='2026-11-04' && releaseHistory.pending===undefined
+    && releaseHistory.category==='新機能' && releaseHistory.layouts.every(layout=>!layout.overflow),
+    `日本語の更新履歴またはテーマ表示が不正です: ${JSON.stringify(releaseHistory)}`);
   await evaluate(`(()=>{document.querySelector('[data-tab=settings]').click();
     const input=document.querySelector('#language-choice');input.value='en';
     input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
@@ -144,6 +169,15 @@ try {
     check:document.querySelector('#settings-check-update').textContent})`);
   check(updateEnglish.version === 'App version' && /^Check/.test(updateEnglish.check),
     `設定のVersion・更新操作が英語になりません: ${JSON.stringify(updateEnglish)}`);
+  releaseHistory.english=await evaluate(`({title:document.querySelector('#release-history summary').textContent.trim(),
+    category:document.querySelector('#release-history [data-release-category]').textContent.trim(),
+    firstDate:document.querySelector('#release-history .release-entry time')?.dateTime,
+    pending:document.querySelector('#release-history [data-release-key=releaseDatePending]')?.textContent.trim(),
+    first:document.querySelector('#release-history .release-entry li').textContent.trim()})`);
+  check(releaseHistory.english.title==='Release history' && releaseHistory.english.category==='New features'
+    && releaseHistory.english.firstDate==='2026-11-04' && releaseHistory.english.pending===undefined
+    && !/[\u3040-\u30ff\u3400-\u9fff]/.test(releaseHistory.english.first),
+    `英語の更新履歴が不正です: ${JSON.stringify(releaseHistory.english)}`);
   await evaluate('document.querySelector("#settings-check-update").click()');
   await until(() => evaluate('document.querySelector("#settings-update-status").textContent.includes("No available update")'),
     '設定からの明示更新確認');
@@ -170,6 +204,14 @@ try {
   await until(() => evaluate('!document.querySelector("#person-error").hidden'), '英語バリデーション');
   check(await evaluate('document.querySelector("#person-error").textContent === "Invalid X username."'),
     '英語バリデーションエラーが表示されません。');
+  const englishAvatarCount=await evaluate(`(()=>{const input=document.querySelector('#person-image'),transfer=new DataTransfer();
+    transfer.items.add(new File(['one'],'one.png',{type:'image/png'}));transfer.items.add(new File(['two'],'two.png',{type:'image/png'}));
+    input.files=transfer.files;input.dispatchEvent(new Event('change',{bubbles:true}));
+    return{multiple:input.multiple,files:input.files.length,cropOpen:document.querySelector('#avatar-crop-dialog').open,
+      message:document.querySelector('#person-error').textContent,hidden:document.querySelector('#person-error').hidden};})()`);
+  check(englishAvatarCount.multiple&&englishAvatarCount.files===0&&!englishAvatarCount.cropOpen&&!englishAvatarCount.hidden
+    &&englishAvatarCount.message==='Please select only one profile image.',
+    `英語の複数画像拒否案内が不正です: ${JSON.stringify(englishAvatarCount)}`);
   await evaluate('document.querySelector("#person-dialog [data-close]").click()');
   await command('Page.reload');
   await until(() => evaluate('document.documentElement.lang === "en" && Boolean(document.querySelector("#home-today-date")?.dateTime)'), '英語設定保持');
@@ -178,7 +220,19 @@ try {
   await until(() => evaluate('document.documentElement.lang === "ja"'), '日本語へ戻す');
   await command('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
   await sleep(200);
+  releaseHistory.mobile=await evaluate(`(()=>{document.querySelector('[data-tab=settings]').click();
+    const section=document.querySelector('#info-section');section.open=true;
+    const history=document.querySelector('#release-history');history.open=true;
+    const result={overflow:history.scrollWidth>history.clientWidth,
+      summaryHeight:history.querySelector('summary').getBoundingClientRect().height,
+      width:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth};
+    document.querySelector('[data-tab=home]').click();return result;})()`);
+  check(!releaseHistory.mobile.overflow && releaseHistory.mobile.summaryHeight>=48
+    && releaseHistory.mobile.scroll===releaseHistory.mobile.width,
+    `390pxの更新履歴が不正です: ${JSON.stringify(releaseHistory.mobile)}`);
   const restoreLayout=await verifyRestoreLayout({evaluate,until,check,command,sleep});
+  const backupSecurity=await verifyBackupSecurity({evaluate,until,check,command});
+  const privacyGuidance=await verifyPrivacyGuidance({evaluate,until,check,command});
   const calendarTaps=await verifyCalendarTaps({evaluate,until,check,command,sleep});
   const calendarRegistration = await verifyCalendarRegistration({ evaluate, until, check });
   const yoribi = await verifyYoribiUI({evaluate,until,check,command,screenshot:async name=>{mkdirSync('test-artifacts',{recursive:true});writeFileSync(`test-artifacts/${name}.png`,Buffer.from((await command('Page.captureScreenshot',{format:'png'})).data,'base64'));}});
@@ -199,6 +253,10 @@ try {
   await command('Input.dispatchTouchEvent', { type:'touchStart', touchPoints:[dayAddPoint] });
   await command('Input.dispatchTouchEvent', { type:'touchEnd', touchPoints:[] });
   await until(() => evaluate('document.querySelector("#person-dialog").open'), 'この日に登録の実タップ');
+  const addFocus=await evaluate(`(()=>{const initial=document.activeElement?.id;document.querySelector('#person-name').focus();
+    const tapped=document.activeElement?.id;document.querySelector('#person-dialog-title').focus({preventScroll:true});return{initial,tapped,scroll:document.querySelector('#person-form').scrollTop};})()`);
+  check(addFocus.initial==='person-dialog-title'&&addFocus.tapped==='person-name'&&addFocus.scroll===0,
+    `新規人物画面の初期フォーカスが不正です: ${JSON.stringify(addFocus)}`);
   await command('Emulation.setTouchEmulationEnabled', { enabled:false });
   writeFileSync('test-artifacts/calendar-day-form-390.png', Buffer.from((await command('Page.captureScreenshot', { format:'png' })).data, 'base64'));
   const formSizes = await evaluate(`(() => ({
@@ -210,6 +268,119 @@ try {
   check(formSizes.minimum >= 16 && formSizes.width <= 390
     && !/user-scalable\s*=\s*no|maximum-scale\s*=\s*1/i.test(formSizes.viewport),
     'モバイルの入力文字サイズかピンチズーム設定が不適切です。');
+  const pickerZero=await evaluate(`(async()=>{const input=document.querySelector('#person-image');
+    const canvas=document.createElement('canvas');canvas.width=32;canvas.height=32;canvas.getContext('2d').fillRect(0,0,32,32);
+    const blob=await new Promise(done=>canvas.toBlob(done,'image/png')),stale=new DataTransfer();
+    stale.items.add(new File([blob],'stale.png',{type:'image/png'}));input.files=stale.files;
+    input.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true}));
+    const clearedAtOpen=input.files.length===0&&input.value==='';
+    input.files=new DataTransfer().files;input.dispatchEvent(new Event('change',{bubbles:true}));
+    await new Promise(done=>setTimeout(done,100));return{clearedAtOpen,files:input.files.length,value:input.value,
+      cropOpen:document.querySelector('#avatar-crop-dialog').open,previewHidden:document.querySelector('#person-image-preview').hidden};})()`);
+  check(pickerZero.clearedAtOpen&&pickerZero.files===0&&pickerZero.value===''&&!pickerZero.cropOpen&&pickerZero.previewHidden,
+    `写真を0枚へ戻した後に古い選択が残りました: ${JSON.stringify(pickerZero)}`);
+  const pickerCancel=await evaluate(`(async()=>{const input=document.querySelector('#person-image');
+    const canvas=document.createElement('canvas');canvas.width=1024;canvas.height=768;canvas.getContext('2d').fillRect(0,0,1024,768);
+    const blob=await new Promise(done=>canvas.toBlob(done,'image/png')),transfer=new DataTransfer();
+    transfer.items.add(new File([blob],'cancel-loading.png',{type:'image/png'}));input.files=transfer.files;
+    input.dispatchEvent(new Event('change',{bubbles:true}));input.dispatchEvent(new Event('cancel',{bubbles:true}));
+    await new Promise(done=>setTimeout(done,150));return{files:input.files.length,value:input.value,
+      cropOpen:document.querySelector('#avatar-crop-dialog').open,previewHidden:document.querySelector('#person-image-preview').hidden};})()`);
+  check(pickerCancel.files===0&&pickerCancel.value===''&&!pickerCancel.cropOpen&&pickerCancel.previewHidden,
+    `非同期画像読込中のcancelで古い画像が開きました: ${JSON.stringify(pickerCancel)}`);
+  await evaluate(`(()=>{const form=document.querySelector('#person-form');form.scrollTop=form.scrollHeight;
+    window.__avatarToastScrollStart=form.scrollTop;const input=document.querySelector('#person-image'),transfer=new DataTransfer();
+    transfer.items.add(new File(['one'],'one.png',{type:'image/png'}));transfer.items.add(new File(['two'],'two.png',{type:'image/png'}));
+    input.files=transfer.files;input.dispatchEvent(new Event('change',{bubbles:true}));
+  })()`);
+  await until(() => evaluate('!document.querySelector("#avatar-count-toast").hidden'), '複数枚拒否の上部トースト');
+  const pickerMultiple=await evaluate(`(()=>{const input=document.querySelector('#person-image'),form=document.querySelector('#person-form');
+    const toast=document.querySelector('#avatar-count-toast'),rect=toast.getBoundingClientRect(),style=getComputedStyle(toast);
+    const dialog=document.querySelector('#person-dialog');
+    return{multiple:input.multiple,files:input.files.length,value:input.value,cropOpen:document.querySelector('#avatar-crop-dialog').open,
+      message:document.querySelector('#person-error').textContent,hidden:document.querySelector('#person-error').hidden,
+      toast:{message:toast.textContent,hidden:toast.hidden,position:style.position,pointerEvents:style.pointerEvents,
+        top:rect.top,bottom:rect.bottom,left:rect.left,right:rect.right,viewportWidth:innerWidth,viewportHeight:innerHeight,
+        role:toast.getAttribute('role'),live:toast.getAttribute('aria-live'),atomic:toast.getAttribute('aria-atomic')},
+      scrollBefore:window.__avatarToastScrollStart,scrollAfter:form.scrollTop,
+      overflow:{dialog:getComputedStyle(dialog).overflowY,dialogClient:dialog.clientHeight,dialogScroll:dialog.scrollHeight,
+        form:getComputedStyle(form).overflowY,formClient:form.clientHeight,formScroll:form.scrollHeight}};})()`);
+  check(pickerMultiple.multiple&&pickerMultiple.files===0&&pickerMultiple.value===''&&!pickerMultiple.cropOpen&&!pickerMultiple.hidden
+    &&pickerMultiple.message==='プロフィール画像は1枚だけ選択してください。',
+    `2枚選択を全件拒否できません: ${JSON.stringify(pickerMultiple)}`);
+  check(!pickerMultiple.toast.hidden&&pickerMultiple.toast.message===pickerMultiple.message
+    &&pickerMultiple.toast.position==='fixed'&&pickerMultiple.toast.pointerEvents==='none'
+    &&pickerMultiple.toast.top>=0&&pickerMultiple.toast.bottom<=pickerMultiple.toast.viewportHeight
+    &&pickerMultiple.toast.left>=0&&pickerMultiple.toast.right<=pickerMultiple.toast.viewportWidth
+    &&pickerMultiple.toast.role==='alert'&&pickerMultiple.toast.live==='assertive'&&pickerMultiple.toast.atomic==='true'
+    &&pickerMultiple.scrollBefore===pickerMultiple.scrollAfter
+    &&pickerMultiple.overflow.dialog==='visible'&&pickerMultiple.overflow.form==='auto'
+    &&pickerMultiple.overflow.formScroll>pickerMultiple.overflow.formClient,
+    `上部トーストの配置・アクセシビリティ・スクロール保持が不正です: ${JSON.stringify(pickerMultiple)}`);
+  await sleep(2300);
+  await evaluate(`(()=>{const toast=document.querySelector('#avatar-count-toast');window.__avatarToastMutations=0;
+    new MutationObserver(records=>window.__avatarToastMutations+=records.length).observe(toast,{attributes:true,childList:true});
+    const input=document.querySelector('#person-image'),transfer=new DataTransfer();
+    transfer.items.add(new File(['one'],'one.png',{type:'image/png'}));transfer.items.add(new File(['two'],'two.png',{type:'image/png'}));
+    input.files=transfer.files;input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await sleep(2250);
+  pickerMultiple.repeated=await evaluate(`({visible:!document.querySelector('#avatar-count-toast').hidden,
+    message:document.querySelector('#avatar-count-toast').textContent,mutations:window.__avatarToastMutations})`);
+  check(pickerMultiple.repeated.visible&&pickerMultiple.repeated.mutations>0
+    &&pickerMultiple.repeated.message==='プロフィール画像は1枚だけ選択してください。',
+    `連続した複数枚拒否でトーストを再表示できません: ${JSON.stringify(pickerMultiple.repeated)}`);
+  await sleep(2100);
+  pickerMultiple.autoHidden=await evaluate(`document.querySelector('#avatar-count-toast').hidden
+    &&document.querySelector('#avatar-count-toast').textContent===''`);
+  check(pickerMultiple.autoHidden, '複数枚拒否トーストが自動で消えません。');
+  await evaluate(`(()=>{const language=document.querySelector('#language-choice');language.value='en';
+    language.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await until(() => evaluate('document.documentElement.lang==="en"'), '英語表示への切り替え');
+  await evaluate(`(()=>{const input=document.querySelector('#person-image'),transfer=new DataTransfer();
+    transfer.items.add(new File(['one'],'one.png',{type:'image/png'}));transfer.items.add(new File(['two'],'two.png',{type:'image/png'}));
+    input.files=transfer.files;input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await until(() => evaluate('!document.querySelector("#avatar-count-toast").hidden'), '英語の複数枚拒否トースト');
+  pickerMultiple.english=await evaluate(`({toast:document.querySelector('#avatar-count-toast').textContent,
+    inline:document.querySelector('#person-error').textContent})`);
+  check(pickerMultiple.english.toast==='Please select only one profile image.'
+    &&pickerMultiple.english.inline===pickerMultiple.english.toast,
+    `英語の複数枚拒否案内が不正です: ${JSON.stringify(pickerMultiple.english)}`);
+  await evaluate(`(()=>{const language=document.querySelector('#language-choice');language.value='ja';
+    language.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await until(() => evaluate('document.documentElement.lang==="ja"'), '日本語表示への復帰');
+  await evaluate(`(async()=>{const input=document.querySelector('#person-image'),canvas=document.createElement('canvas');
+    canvas.width=64;canvas.height=64;canvas.getContext('2d').fillRect(0,0,64,64);
+    const blob=await new Promise(done=>canvas.toBlob(done,'image/png')),transfer=new DataTransfer();
+    transfer.items.add(new File([blob],'retry.png',{type:'image/png'}));input.files=transfer.files;
+    input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await until(() => evaluate('document.querySelector("#avatar-crop-dialog").open'), '複数枚拒否後の1枚再選択');
+  pickerMultiple.retry=await evaluate(`({multiple:document.querySelector('#person-image').multiple,
+    cropOpen:document.querySelector('#avatar-crop-dialog').open,errorHidden:document.querySelector('#person-error').hidden,
+    toastHidden:document.querySelector('#avatar-count-toast').hidden})`);
+  check(pickerMultiple.retry.multiple&&pickerMultiple.retry.cropOpen&&pickerMultiple.retry.errorHidden&&pickerMultiple.retry.toastHidden,
+    `2枚拒否後に1枚を再選択できません: ${JSON.stringify(pickerMultiple.retry)}`);
+  await evaluate('document.querySelector("#crop-cancel").click()');
+  await until(() => evaluate('!document.querySelector("#avatar-crop-dialog").open'), '複数枚拒否後の再選択キャンセル');
+  pickerMultiple.afterCancel=await evaluate(`({files:document.querySelector('#person-image').files.length,
+    value:document.querySelector('#person-image').value,cropOpen:document.querySelector('#avatar-crop-dialog').open})`);
+  check(pickerMultiple.afterCancel.files===0&&pickerMultiple.afterCancel.value===''&&!pickerMultiple.afterCancel.cropOpen,
+    `再選択キャンセル後に一時Fileが残りました: ${JSON.stringify(pickerMultiple.afterCancel)}`);
+  await evaluate(`(async()=>{const input=document.querySelector('#person-image'),make=async color=>{const canvas=document.createElement('canvas');
+    canvas.width=320;canvas.height=320;const context=canvas.getContext('2d');context.fillStyle=color;context.fillRect(0,0,320,320);
+    return new Promise(done=>canvas.toBlob(done,'image/png'));};
+    const first=new DataTransfer();first.items.add(new File([await make('red')],'first.png',{type:'image/png'}));
+    input.files=first.files;input.dispatchEvent(new Event('change',{bubbles:true}));
+    input.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true}));
+    const second=new DataTransfer();second.items.add(new File([await make('blue')],'second.png',{type:'image/png'}));
+    input.files=second.files;input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await until(() => evaluate('document.querySelector("#avatar-crop-dialog").open'), '別写真への再選択');
+  const replacementSelection=await evaluate(`(()=>{const image=document.querySelector('#crop-viewport .crop-image'),sample=document.createElement('canvas');
+    sample.width=1;sample.height=1;const context=sample.getContext('2d');context.drawImage(image,0,0,1,1);
+    return [...context.getImageData(0,0,1,1).data];})()`);
+  check(replacementSelection[2]>replacementSelection[0],
+    `別写真への変更で古い画像が使われました: ${JSON.stringify(replacementSelection)}`);
+  await evaluate('document.querySelector("#crop-close").click()');
+  await until(() => evaluate('!document.querySelector("#avatar-crop-dialog").open'), '別写真テストのキャンセル');
   await evaluate(`(async () => { document.querySelector('#person-name').value='ブラウザ検証';
     const canvas=document.createElement('canvas'); canvas.width=1024; canvas.height=768;
     const context=canvas.getContext('2d');context.fillStyle='#d53b68';context.fillRect(0,0,1024,768);
@@ -256,6 +427,18 @@ try {
     return {zoom:2,move,pinchZoom};})()`);
   check(Number(cropGesture.zoom) === 2 && cropGesture.move > 20 && cropGesture.pinchZoom > 2.5,
     'トリミングの移動・スライダー・ピンチ拡大ができません。');
+  await evaluate('document.querySelector("#crop-close").click()');
+  await until(() => evaluate('!document.querySelector("#avatar-crop-dialog").open'), '新規画像の×キャンセル');
+  const newCancel=await evaluate(`(async()=>{const input=document.querySelector('#person-image'),preview=document.querySelector('#person-image-preview');
+    const db=await new Promise(done=>{const r=indexedDB.open('birthday-circle-local');r.onsuccess=()=>done(r.result)}),count=await new Promise(done=>{const q=db.transaction('images').objectStore('images').count();q.onsuccess=()=>done(q.result)});db.close();
+    return{files:input.files.length,value:input.value,previewHidden:preview.hidden,imageCount:count};})()`);
+  check(newCancel.files===0&&newCancel.value===''&&newCancel.previewHidden&&newCancel.imageCount===0,
+    `新規画像の×キャンセルで一時状態が残りました: ${JSON.stringify(newCancel)}`);
+  await evaluate(`(async()=>{const canvas=document.createElement('canvas');canvas.width=1024;canvas.height=768;
+    const context=canvas.getContext('2d');context.fillStyle='#d53b68';context.fillRect(0,0,1024,768);context.fillStyle='#35bf6f';context.fillRect(362,234,300,300);
+    const blob=await new Promise(done=>canvas.toBlob(done,'image/png')),transfer=new DataTransfer();transfer.items.add(new File([blob],'confirmed.png',{type:'image/png'}));
+    const input=document.querySelector('#person-image');input.files=transfer.files;input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await until(() => evaluate('document.querySelector("#avatar-crop-dialog").open'), 'キャンセル後の画像再選択');
   await evaluate('document.querySelector("#crop-confirm").click()');
   await until(() => evaluate('!document.querySelector("#avatar-crop-dialog").open'), 'トリミング確定');
   check(await evaluate('document.querySelector("#person-image-preview img").src.startsWith("blob:")'),
@@ -416,16 +599,20 @@ try {
   await evaluate('document.querySelector("[data-tab=calendar]").click()');
   await evaluate(`(async()=>{document.querySelector('#person-rail .avatar-person').click();
     document.querySelector('#detail-edit').click();
-    const canvas=document.createElement('canvas');canvas.width=800;canvas.height=400;
-    canvas.getContext('2d').fillStyle='blue';canvas.getContext('2d').fillRect(0,0,800,400);
+    window.__editInitialFocus=document.activeElement?.id;
+    const canvas=document.createElement('canvas');canvas.width=4600;canvas.height=3800;
+    canvas.getContext('2d').fillStyle='blue';canvas.getContext('2d').fillRect(0,0,4600,3800);
     const blob=await new Promise(done=>canvas.toBlob(done,'image/png'));
     const transfer=new DataTransfer();transfer.items.add(new File([blob],'new.png',{type:'image/png'}));
     document.querySelector('#person-image').files=transfer.files;
     document.querySelector('#person-image').dispatchEvent(new Event('change',{bubbles:true}));})()`);
   await until(() => evaluate('document.querySelector("#avatar-crop-dialog").open'), '画像差し替えの調整画面');
-  await evaluate('document.querySelector("#crop-cancel").click()');
+  check(await evaluate(`(()=>{const image=document.querySelector('#crop-viewport .crop-image');return window.__editInitialFocus==='person-dialog-title'&&image.naturalWidth===4600&&image.naturalHeight===3800;})()`),
+    '旧16.8MP上限を超える高解像度画像をトリミング画面で扱えません。');
+  await evaluate('document.querySelector("#crop-close").click()');
   await until(() => evaluate('!document.querySelector("#avatar-crop-dialog").open'), '画像調整キャンセル');
-  check(await evaluate('document.querySelector("#person-image-preview").textContent.includes("現在の画像")'),
+  check(await evaluate(`document.querySelector('#person-image-preview').textContent.includes('現在の画像')
+    && document.querySelector('#person-image').files.length===0 && document.querySelector('#person-image').value===''`),
     'キャンセル後に既存画像が残りません。');
   await evaluate(`(async()=>{const canvas=document.createElement('canvas');canvas.width=800;canvas.height=400;
     const context=canvas.getContext('2d');context.fillStyle='blue';context.fillRect(0,0,800,400);
@@ -455,9 +642,10 @@ try {
     `画像変更がカレンダーに反映されません: ${JSON.stringify(calendarReplacement)}`);
   await evaluate(`(()=>{document.querySelector('[data-tab=settings]').click();
     const original=URL.createObjectURL;
-    URL.createObjectURL=function(blob){if(blob.type==='application/zip')window.__backup=blob;
+    URL.createObjectURL=function(blob){if(blob.type==='application/octet-stream')window.__backup=blob;
       return original.call(URL,blob);};
     document.querySelector('#transfer-export').click();})()`);
+  await enterBackupPassword({evaluate,until});
   await until(() => evaluate('window.__backup?.size > 0'), '画像を含むZIP書き出し');
   await evaluate(`(()=>{document.querySelector('[data-tab=calendar]').click();
     document.querySelector('#person-rail .avatar-person').click();
@@ -481,7 +669,8 @@ try {
     const input=document.querySelector('#import-backup');const transfer=new DataTransfer();
     transfer.items.add(new File([window.__backup],'backup.zip',{type:'application/zip'}));
     input.files=transfer.files;input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
-  await until(() => evaluate('!document.querySelector("#restore-preview").hidden'), 'ZIP内容プレビュー');
+  await enterBackupPassword({evaluate,until},false);
+  await until(() => evaluate('!document.querySelector("#restore-preview").hidden'), '暗号化バックアップ内容プレビュー');
   check(await evaluate(`document.querySelector('#restore-preview').textContent.includes('完全に置き換え')
     && document.querySelector('#restore-preview').textContent.includes('この端末に1人')`),
     '復元プレビューに完全置換と現在件数が示されません。');
@@ -613,6 +802,10 @@ try {
       && document.querySelector('#person-birth-day').value==='1' && document.querySelector('#person-birth-year').value==='';
     document.querySelector('#person-dialog [data-close]').click();return valid;})()`), 'オフラインの日付から登録できません。');
   await evaluate('document.querySelector("[data-tab=settings]").click()');
+  check(await evaluate(`(()=>{const section=document.querySelector('#info-section');section.open=true;
+    const history=document.querySelector('#release-history');history.open=true;
+    return history.querySelector('.release-entry')?.dataset.version==='${APP_VERSION}';})()`),
+    'オフラインで更新履歴を表示できません。');
   await evaluate('document.querySelector("#settings-check-update").click()');
   check(await evaluate('document.querySelector("#settings-update-status").textContent.includes("offline")'),
     '設定のオフライン更新確認が区別されません。');
@@ -626,6 +819,8 @@ try {
     mobileViews, distribution, orientation, english, peopleAfterUpdate, imagesAfterUpdate, cachesAfterUpdate,
     calendarAvatars,calendarOverflow,calendarReuse,calendarReplacement,calendarGeometry,calendarRegistration,calendarInteractions,pcDateRegistration,yoribi,
     waitingCache, settingsAfterUpdate, updateReloads,dayListGestures,home,birthdayUI,personActions,railManagement,calendarTaps,restoreLayout,
+    backupSecurity,privacyGuidance,iosStorageGuidance,releaseHistory,
+    avatarPickerRegression:{zero:pickerZero,cancel:pickerCancel,multiple:pickerMultiple,replacementPixel:replacementSelection},
     consoleErrors: errors.length, externalRequests: externalRequests.length }));
 } finally {
   socket?.close(); child?.kill(); server.close();

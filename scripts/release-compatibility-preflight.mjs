@@ -1,4 +1,5 @@
 import 'fake-indexeddb/auto';
+import '../tests/helpers/image-fixture.js';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
@@ -12,6 +13,7 @@ const oldRoot=process.argv[2];
 if(!oldRoot)throw new Error('Usage: node scripts/release-compatibility-preflight.mjs ARCHIVED_SOURCE');
 const oldDB=await import(pathToFileURL(resolve(oldRoot,'src/db.js')));
 const oldBackup=await import(pathToFileURL(resolve(oldRoot,'src/backup.js')));
+const oldModel=await import(pathToFileURL(resolve(oldRoot,'src/model.js')));
 const handles=[];
 async function fresh(api){const db=await api.openDatabase('release-preflight-'+crypto.randomUUID());handles.push(db);return db;}
 async function snapshot(db){
@@ -57,9 +59,10 @@ try{
     const backup=await currentBackup.createBackup(target);
     await currentBackup.inspectBackup(backup);
     const before=await snapshot(oldTarget);
-    await assert.rejects(oldBackup.inspectBackup(backup));
+    const oldAccepts=year>=(oldModel.BIRTH_YEAR_MIN??1900)&&year<=(oldModel.BIRTH_YEAR_MAX??2100);
+    if(oldAccepts)await oldBackup.inspectBackup(backup);else await assert.rejects(oldBackup.inspectBackup(backup));
     assert.deepEqual(await snapshot(oldTarget),before,'Unsupported ZIP must not mutate old target');
-    reverseLimits.push({year,currentAccepts:true,officialRejects:true,oldDataPreserved:true});
+    reverseLimits.push({year,currentAccepts:true,officialRejects:!oldAccepts,oldDataPreserved:true});
   }
   console.log(JSON.stringify({officialToCurrent:true,currentToOfficialWithinOldYearRange:true,
     fromAppVersion:oldBackup.APP_VERSION,toAppVersion:currentBackup.APP_VERSION,

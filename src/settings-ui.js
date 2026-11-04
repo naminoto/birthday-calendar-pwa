@@ -1,3 +1,5 @@
+import {setupReleaseHistory} from './release-history-ui.js';
+
 // 既存フォームとIDをそのまま移動。開閉で設定値やイベントを作り直さない。
 export function setupSettingsSections(t) {
   const view = document.getElementById('view-settings');
@@ -19,10 +21,19 @@ export function setupSettingsSections(t) {
   label.append(title, select); appearance.append(label);
   const update = view.querySelector('.settings-update');
   const appName = document.createElement('h2'); appName.textContent = 'Yoribi';
-  const info = document.createElement('div');info.className='panel setting-card';info.append(appName,update);
+  const info = document.createElement('div');info.className='panel setting-card';
+  info.append(appName,update,setupReleaseHistory(t));
   const privacy = view.querySelector('.privacy-note');
+  const guidance = document.createElement('div'); guidance.className = 'data-privacy-guide';
+  for (const topic of ['local','backup','zip','restore','help']) {
+    for (const [tag, suffix] of [['h3','Title'],['p','Text']]) {
+      const node = document.createElement(tag), key = `dataPrivacy_${topic}${suffix}`;
+      node.dataset.guidanceKey = key; node.textContent = t(key); guidance.append(node);
+    }
+  }
   view.append(section('appearance-section','appearanceTitle',[cards[0],appearance]),
     section('notice-section','noticeTitle',[cards[1]]),section('backup-section','backupTitle',[cards[2]]),
+    section('data-privacy-section','dataPrivacyTitle',[guidance]),
     section('storage-section','storageTitle',[cards[3]]),section('info-section','appInfo',[info,privacy]));
 }
 

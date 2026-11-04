@@ -2,7 +2,7 @@ const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const CHECK_KEY = 'birthday-circle-last-update-check';
 
 // 新SWは待機させ、利用者が選ぶまで現在の画面とIndexedDBに触れない。
-export async function setupUpdates({ t, errorText = (error) => error.message, confirmUpdate = () => true } = {}) {
+export async function setupUpdates({ t, errorText = (error) => error.message, confirmUpdate = () => true, isStopped=()=>false } = {}) {
   if (!('serviceWorker' in navigator)) return null;
   const banner = document.getElementById('update-banner');
   const message = document.getElementById('update-message');
@@ -29,6 +29,7 @@ export async function setupUpdates({ t, errorText = (error) => error.message, co
     applyButton.hidden = !updating && !ready;
   };
   const show = () => {
+    if(isStopped())return;
     renderSettings();
     if (updating) return;
     const waiting = registration?.waiting;
@@ -55,6 +56,7 @@ export async function setupUpdates({ t, errorText = (error) => error.message, co
       });
     });
     navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if(isStopped())return;
       if (reloaded) return;
       const alreadyControlled = hadController;
       hadController = true;
@@ -67,6 +69,7 @@ export async function setupUpdates({ t, errorText = (error) => error.message, co
     });
     laterButton.onclick = () => { dismissed = registration.waiting; changedElsewhere = false; banner.hidden = true; renderSettings(); };
     const applyUpdate = () => {
+      if(isStopped())return;
       if (updating || !confirmUpdate()) return;
       const waiting = registration.waiting;
       if (!waiting && !changedElsewhere) { show(); return; }
@@ -101,6 +104,7 @@ export async function setupUpdates({ t, errorText = (error) => error.message, co
       });
     };
     const check = async (force = false) => {
+      if(isStopped())return;
       if (updating) return;
       if (checkInFlight) return checkInFlight;
       if (navigator.onLine === false) { if (force) { checkState = 'updateOffline'; renderSettings(); } return; }
@@ -112,7 +116,7 @@ export async function setupUpdates({ t, errorText = (error) => error.message, co
         try {
           await registration.update();
           await waitForInstall();
-          try { localStorage.setItem(CHECK_KEY, String(Date.now())); } catch { /* 保存禁止環境でも更新可能 */ }
+          try { if(!isStopped())localStorage.setItem(CHECK_KEY, String(Date.now())); } catch { /* 保存禁止環境でも更新可能 */ }
           checkState = 'updateNoneFound';
         } catch {
           checkState = navigator.onLine === false ? 'updateOffline' : 'updateCheckFailed';

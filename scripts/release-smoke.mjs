@@ -15,10 +15,15 @@ import { verifyBirthdayUI } from './birthday-ui-smoke.mjs';
 import {verifyPersonActions} from './person-actions-smoke.mjs';
 import {verifyRailManagement} from './rail-management-smoke.mjs';
 import {verifyCalendarTaps} from './calendar-tap-smoke.mjs';
+import {verifyBackupSecurity} from './backup-security-smoke.mjs';
+import {verifyLifecycle} from './lifecycle-smoke.mjs';
 
 // 公開版の確認、または旧配布物→現在のdistの更新確認。実データには触れない。
 const option = (name) => process.argv.find((arg) => arg.startsWith(`--${name}=`))?.slice(name.length + 3);
 const previousDist = option('previous-dist'), publicUrl = option('url'), localDist=option('serve-dist');
+const expectedAppVersion=option('expected-version')||APP_VERSION;
+const expectedAvatarDiagnostics=option('expect-avatar-diagnostics');
+const expectedAvatarPickerMode=option('expect-avatar-picker-mode');
 if (!previousDist && !publicUrl && !localDist) throw new Error('Use --previous-dist=PATH, --serve-dist=PATH or --url=HTTPS_URL');
 const runUI=Boolean(publicUrl||localDist);
 const currentRoot = resolve(option('current-dist') || localDist || 'dist'); let servingRoot = previousDist ? resolve(previousDist) : currentRoot;
@@ -35,6 +40,9 @@ const server = publicUrl ? null : createServer((req, res) => {
 });
 if (server) await new Promise((done) => server.listen(0, '127.0.0.1', done));
 const baseUrl = publicUrl || `http://127.0.0.1:${server.address().port}/birthday-calendar-pwa/`;
+const navigation=new URL(baseUrl);
+if(expectedAvatarDiagnostics==='true')navigation.searchParams.set('avatar-diagnostics','1');
+const navigationUrl=navigation.href;
 const profile = mkdtempSync(join(tmpdir(), 'birthday-release-smoke-'));
 let child, socket, sequence = 0, navigations = 0;
 const pending = new Map(), errors = [], requests = [];
@@ -82,8 +90,70 @@ try {
   await command('Page.addScriptToEvaluateOnNewDocument', { source:`window.__dataResetCalls=[];
     const clear=IDBObjectStore.prototype.clear;IDBObjectStore.prototype.clear=function(){window.__dataResetCalls.push(this.name);return clear.call(this);};
     const remove=indexedDB.deleteDatabase.bind(indexedDB);indexedDB.deleteDatabase=function(name){window.__dataResetCalls.push('delete:'+name);return remove(name);};` });
-  await command('Page.navigate', { url:baseUrl });
+  await command('Page.navigate', { url:navigationUrl });
   await until(() => evaluate('Boolean(document.querySelector("#app-version")?.textContent && navigator.serviceWorker.controller)'), 'App startup timeout');
+  let avatarDiagnostics=null,avatarPickerExperiment=null;
+  if(expectedAvatarDiagnostics!==undefined){
+    const expectedEnabled=expectedAvatarDiagnostics==='true';
+    check(expectedEnabled||expectedAvatarDiagnostics==='false','expect-avatar-diagnostics must be true or false');
+    const present=await evaluate('Boolean(document.querySelector("#avatar-picker-diagnostics"))');
+    check(present===expectedEnabled,`Avatar diagnostics gate mismatch: expected ${expectedEnabled}, got ${present}`);
+    if(expectedEnabled){
+      if(expectedAvatarPickerMode!==undefined)check(['single','multiple'].includes(expectedAvatarPickerMode),'Invalid avatar picker mode');
+      const pickerState=await evaluate(`(()=>{const input=document.querySelector('#person-image');return{
+        mode:document.querySelector('#avatar-picker-diagnostics summary').textContent.split('·').at(-1).trim(),multiple:input.multiple};})()`);
+      if(expectedAvatarPickerMode!==undefined)check(pickerState.mode===expectedAvatarPickerMode
+        &&pickerState.multiple===(expectedAvatarPickerMode==='multiple'),`Avatar picker mode mismatch: ${JSON.stringify(pickerState)}`);
+      await evaluate(`(()=>{document.querySelector('#people-add').click();const input=document.querySelector('#person-image');
+        input.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true}));
+        input.files=new DataTransfer().files;input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+      await pause(650);
+      avatarDiagnostics=await evaluate(`(()=>{const text=document.querySelector('#avatar-picker-diagnostic-log').textContent;
+        const entries=text.trim().split('\\n').filter(Boolean).map(line=>JSON.parse(line));
+        return{enabled:true,pickerMode:entries.at(-1)?.pickerMode,multiple:entries.at(-1)?.multiple,
+          lines:entries.length,events:[...new Set(entries.map(entry=>entry.event))],
+          emptyObserved:entries.some(entry=>entry.files===0),forbiddenKeys:entries.flatMap(entry=>Object.keys(entry))
+            .filter(key=>['filename','name','size','type','image','password','person'].includes(key))};})()`);
+      check(avatarDiagnostics.lines>0&&avatarDiagnostics.events.includes('operation-start')
+        &&avatarDiagnostics.events.includes('change-handler')&&avatarDiagnostics.events.includes('selection-rejected')
+        &&avatarDiagnostics.emptyObserved&&avatarDiagnostics.forbiddenKeys.length===0,
+        `Avatar diagnostics smoke failed: ${JSON.stringify(avatarDiagnostics)}`);
+      if(expectedAvatarPickerMode==='multiple'){
+        await evaluate(`(()=>{const input=document.querySelector('#person-image'),transfer=new DataTransfer();
+          transfer.items.add(new File(['not decoded'],'one.png',{type:'image/png'}));
+          transfer.items.add(new File(['not decoded'],'two.png',{type:'image/png'}));
+          input.files=transfer.files;input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+        await pause(50);
+        const multipleRejected=await evaluate(`(()=>{const input=document.querySelector('#person-image'),text=document.querySelector('#avatar-picker-diagnostic-log').textContent;
+          return{files:input.files.length,cropOpen:document.querySelector('#avatar-crop-dialog').open,
+            message:document.querySelector('#person-error').textContent,errorHidden:document.querySelector('#person-error').hidden,
+            rejected:text.split('\\n').filter(Boolean).map(line=>JSON.parse(line)).some(entry=>entry.event==='selection-rejected'&&entry.files===2)};})()`);
+        check(multipleRejected.files===0&&!multipleRejected.cropOpen&&multipleRejected.rejected&&!multipleRejected.errorHidden
+          &&multipleRejected.message==='プロフィール画像は1枚だけ選択してください。',
+          `Multiple selection was not rejected: ${JSON.stringify(multipleRejected)}`);
+        await evaluate(`(async()=>{const canvas=document.createElement('canvas');canvas.width=8;canvas.height=8;
+          canvas.getContext('2d').fillRect(0,0,8,8);const blob=await new Promise(done=>canvas.toBlob(done,'image/png'));
+          const transfer=new DataTransfer();transfer.items.add(new File([blob],'one.png',{type:'image/png'}));
+          const input=document.querySelector('#person-image');input.files=transfer.files;input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+        await until(()=>evaluate('document.querySelector("#avatar-crop-dialog").open'),'Multiple mode one-photo crop');
+        const oneAccepted=await evaluate(`(()=>({multiple:document.querySelector('#person-image').multiple,
+          cropOpen:document.querySelector('#avatar-crop-dialog').open,errorHidden:document.querySelector('#person-error').hidden}))()`);
+        check(oneAccepted.multiple&&oneAccepted.cropOpen&&oneAccepted.errorHidden,
+          `One-photo retry did not recover: ${JSON.stringify(oneAccepted)}`);
+        await evaluate('document.querySelector("#crop-cancel").click()');
+        await until(()=>evaluate('!document.querySelector("#avatar-crop-dialog").open'),'Multiple mode crop cancel');
+        const afterCancel=await evaluate(`(()=>({files:document.querySelector('#person-image').files.length,
+          cropOpen:document.querySelector('#avatar-crop-dialog').open}))()`);
+        avatarPickerExperiment={mode:'multiple',multipleRejected,oneAccepted,afterCancel};
+      }
+      await evaluate('document.querySelector("#person-dialog").close()');
+    }else{
+      const inputMultiple=await evaluate('document.querySelector("#person-image").multiple');
+      if(expectedAvatarPickerMode!==undefined)check(inputMultiple===(expectedAvatarPickerMode==='multiple'),
+        `Avatar picker mode mismatch outside diagnostics: expected ${expectedAvatarPickerMode}, got ${inputMultiple}`);
+      avatarDiagnostics={enabled:false,inputMultiple};
+    }
+  }
   let yoribiFlow = null;
   if (publicUrl && option('check-yoribi') === 'true') {
     yoribiFlow = await verifyYoribiUI({ evaluate, until, check, command });
@@ -95,6 +165,7 @@ try {
     registrationFlow = await verifyCalendarRegistration({ evaluate, until, check });
   }
   let upgrade = null;
+  if(runUI&&option('check-backup-security')==='true')await verifyBackupSecurity({evaluate,until,check,command});
   let calendarTapsFlow=null,railManagementFlow=null;
   if(runUI&&option('check-calendar-taps')==='true')calendarTapsFlow=await verifyCalendarTaps({evaluate,until,check,command,sleep:pause});
   if(runUI&&option('check-rail-management')==='true')railManagementFlow=await verifyRailManagement({evaluate,until,check,command,sleep:pause});
@@ -146,6 +217,13 @@ try {
     await command('Page.reload');
     await until(() => evaluate('document.documentElement.lang === "en" && document.querySelector("#person-rail .avatar-person") !== null'), 'Old data rendering timeout');
     const before = await evaluate(snapshotExpression);
+    // 旧アプリ自身の書き出し処理を使用。ダミー画像を含む本物の旧ZIPを新UIで検証する。
+    await evaluate(`(()=>{window.__oldExportURL=URL.createObjectURL;window.__oldExportClick=HTMLAnchorElement.prototype.click;
+      URL.createObjectURL=function(blob){if(blob.type==='application/zip')window.__oldExportBlob=blob;return window.__oldExportURL(blob);};
+      HTMLAnchorElement.prototype.click=function(){};document.querySelector('[data-tab=settings]').click();document.querySelector('#export-backup').click();})()`);
+    await until(()=>evaluate('Boolean(window.__oldExportBlob)'), 'Old ZIP export failed');
+    const oldZIP=await evaluate(`(async()=>{const bytes=new Uint8Array(await window.__oldExportBlob.arrayBuffer());let text='';for(const byte of bytes)text+=String.fromCharCode(byte);
+      URL.createObjectURL=window.__oldExportURL;HTMLAnchorElement.prototype.click=window.__oldExportClick;return btoa(text);})()`);
     servingRoot = currentRoot;
     await evaluate('(async()=>{await (await navigator.serviceWorker.getRegistration()).update();})()');
     await until(() => evaluate('!document.querySelector("#update-banner").hidden'), 'Old app update detection timeout');
@@ -158,15 +236,19 @@ try {
     // 旧workerへ繰り返しメッセージを送らず、まずcontrollerchange由来のnavigationを待つ。
     try { await until(() => navigations > beforeNavigations && evaluate(`(async()=>{if(!document.querySelector('#person-rail .avatar-person'))return false;
       const info=await new Promise(done=>{const c=new MessageChannel();c.port1.onmessage=e=>{c.port1.close();done(e.data);};navigator.serviceWorker.controller.postMessage({type:'CACHE_NAME'},[c.port2]);});
-      return info.cacheName.endsWith('${expectedCache}')&&document.querySelector('#app-version')?.textContent==='${APP_VERSION}';})()`), 'Upgrade timeout'); }
+      return info.cacheName.endsWith('${expectedCache}')&&document.querySelector('#app-version')?.textContent==='${expectedAppVersion}';})()`), 'Upgrade timeout'); }
     catch(error) { throw new Error(JSON.stringify({message:error.message,expectedCache,errors,navigations,beforeNavigations,state:await evaluate(`(async()=>{const r=await navigator.serviceWorker.getRegistration();const info=await new Promise(done=>{const c=new MessageChannel();c.port1.onmessage=e=>done(e.data);navigator.serviceWorker.controller.postMessage({type:'CACHE_NAME'},[c.port2]);});return {title:document.title,brand:document.querySelector('.brand strong').textContent,info,waiting:r.waiting?.state,active:r.active?.state,disabled:document.querySelector('#update-app').disabled,hidden:document.querySelector('#update-banner').hidden,message:document.querySelector('#update-message').textContent};})()`)})); }
     await pause(500);
     const after = await evaluate(snapshotExpression);
     check(JSON.stringify(before) === JSON.stringify(after), 'Data changed during version upgrade');
     check(navigations - beforeNavigations === 1, 'Upgrade did not reload exactly once');
     check((await evaluate('window.__dataResetCalls')).length === 0, 'Upgrade called data clear/delete');
-    upgrade = { from:previousVersion, to:APP_VERSION, databaseVersion:after.version, people:after.records[0].length,
-      images:after.records[1].length, notices:after.records[3].length, allDataUnchanged:true, reloads:1, dataResetCalls:0 };
+    await evaluate(`(()=>{document.querySelector('[data-tab=settings]').click();const input=document.querySelector('#import-backup'),transfer=new DataTransfer();
+      transfer.items.add(new File([Uint8Array.from(atob('${oldZIP}'),c=>c.charCodeAt(0))],'old-official.zip',{type:'application/zip'}));input.files=transfer.files;input.dispatchEvent(new Event('change'));})()`);
+    await until(()=>evaluate('!document.querySelector("#restore-preview").hidden'),'New version rejected actual old ZIP');
+    check(JSON.stringify(await evaluate(snapshotExpression))===JSON.stringify(after),'Old ZIP inspection changed data');
+    upgrade = { from:previousVersion, to:expectedAppVersion, databaseVersion:after.version, people:after.records[0].length,
+      images:after.records[1].length, notices:after.records[3].length, allDataUnchanged:true, reloads:1, dataResetCalls:0,oldZIPValidatedInNewUI:true };
   }
   const published = await evaluate(`(async()=>{document.querySelector('[data-tab=settings]').click();
     const urls=[...document.querySelectorAll('script[src],link[rel=stylesheet],link[rel=manifest],link[rel=apple-touch-icon]')].map(node=>node.src||node.href);
@@ -180,19 +262,29 @@ try {
     return {version:document.querySelector('#app-version').textContent,worker:info.appVersion,workerSource:sw.match(/const APP_VERSION = '([^']+)'/)?.[1],
       calendarImages:calendarImages.length,calendarMarks:[...document.querySelectorAll('.calendar-event .event-mark')].map(node=>node.textContent),
       updateControls:!!document.querySelector('#settings-check-update'),transferGuide:!!document.querySelector('#transfer-title'),statuses};})()`);
-  check(published.version === APP_VERSION && published.worker === APP_VERSION && published.workerSource === APP_VERSION,
+  check(published.version === expectedAppVersion && published.worker === expectedAppVersion && published.workerSource === expectedAppVersion,
     `Version mismatch: ${JSON.stringify(published)}`);
+  const preview=option('check-preview')==='true'?await evaluate(`(()=>{const banner=document.querySelector('#preview-candidate-banner');
+    const versions=[...document.querySelectorAll('#release-history .release-entry')].map(node=>node.dataset.version);
+    return {banner:banner?.textContent.trim(),meta:document.querySelector('meta[name="yoribi-preview-version"]')?.content,
+      title:document.title,officialHistoryHasCandidate:versions.includes('1.4.3'),
+      firstDate:document.querySelector('#release-history .release-entry time')?.dateTime,
+      pending:document.querySelector('#release-history [data-release-key=releaseDatePending]')?.textContent.trim()};})()`):null;
+  if(preview)check(preview.banner?.includes('v1.4.3候補')&&preview.meta===expectedAppVersion
+    &&preview.title.includes('v1.4.3候補')&&preview.officialHistoryHasCandidate
+    &&preview.firstDate==='2026-11-04'&&preview.pending===undefined,`Preview marker mismatch: ${JSON.stringify(preview)}`);
   check(published.updateControls && published.transferGuide && published.statuses.every((status) => status === 200), 'Published UI or assets missing');
   if (previousDist) {
     check(published.calendarImages === 1 && published.calendarMarks.includes('🎂'), 'Calendar icons missing after upgrade');
     await command('Network.emulateNetworkConditions', { offline:true, latency:0, downloadThroughput:0, uploadThroughput:0 });
     await command('Page.reload');
-    await until(() => evaluate(`document.querySelector('#app-version')?.textContent === '${APP_VERSION}' && document.querySelector('#person-rail .avatar-person') !== null`), 'Offline upgrade startup failed');
+    await until(() => evaluate(`document.querySelector('#app-version')?.textContent === '${expectedAppVersion}' && document.querySelector('#person-rail .avatar-person') !== null`), 'Offline upgrade startup failed');
   }
+  const lifecycleFlow=option('check-lifecycle')==='true'?await verifyLifecycle({evaluate,until,check,command,baseUrl}):null;
   const externalRequests = requests.filter((url) => !url.startsWith(baseUrl) && !url.startsWith('blob:') && !url.startsWith('data:'));
   check(externalRequests.length === 0, `Unexpected requests: ${JSON.stringify(externalRequests)}`);
   check(errors.length === 0, `Browser errors: ${JSON.stringify(errors)}`);
-  console.log(JSON.stringify({ baseUrl, upgrade, published, yoribiFlow, registrationFlow, calendarTapsFlow, railManagementFlow, personActionsFlow, interactionFlow, dayListFlow, homeFlow, fontLabFlow, birthdayUIFlow, standardFontFlow, offlineAfterUpgrade:!!previousDist, consoleErrors:errors.length, externalRequests:externalRequests.length }));
+  console.log(JSON.stringify({ baseUrl, upgrade, published, preview,avatarDiagnostics,avatarPickerExperiment, yoribiFlow, registrationFlow, calendarTapsFlow, railManagementFlow, personActionsFlow, interactionFlow, dayListFlow, homeFlow, fontLabFlow, birthdayUIFlow, standardFontFlow,lifecycleFlow, offlineAfterUpgrade:!!previousDist, consoleErrors:errors.length, externalRequests:externalRequests.length }));
 } finally {
   socket?.close(); child?.kill(); server?.close();
   if (profile.startsWith(resolve(tmpdir()) + sep) && profile.includes('birthday-release-smoke-')) {

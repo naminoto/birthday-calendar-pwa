@@ -26,11 +26,29 @@ for(const path of expected.filter(p=>!p.endsWith('.ttf')&&!p.endsWith('.png'))){
 }
 const manifest=JSON.parse(await readFile(join(root,'site/manifest.webmanifest'),'utf8'));
 check(manifest.name==='Yoribi テスト'&&manifest.short_name==='Yoribi テスト'&&manifest.scope==='./'&&manifest.start_url==='./'&&manifest.id==='./','Preview manifest');
-check((await readFile(join(root,'site/index.html'),'utf8')).includes('name="apple-mobile-web-app-title" content="Yoribi テスト"'),'Apple preview name');
+const html=await readFile(join(root,'site/index.html'),'utf8');
+check(html.includes('name="apple-mobile-web-app-title" content="Yoribi テスト"'),'Apple preview name');
+check(html.includes('name="yoribi-preview-version" content="1.4.3-candidate"')
+  &&html.includes('name="yoribi-preview-title" content="Yoribi テスト · v1.4.3候補"')
+  && html.includes('id="preview-candidate-banner"')&&html.includes('v1.4.3候補'),'Candidate marker');
 const sw=await readFile(join(root,'site/sw.js'),'utf8');
 check(!sw.includes('indexedDB'),'Worker must not touch user database');
+check(sw.includes("const APP_VERSION = '1.4.3-candidate'"),'Candidate worker version');
 check(JSON.stringify(JSON.parse(sw.match(/const PRECACHE = (\[[^;]+\]);/)[1]).map(p=>p.slice(2)).sort())===JSON.stringify(record.files.map(f=>f.path).filter(p=>p!=='sw.js').sort()),'Preview cache list');
 const workflow=await readFile(join(root,'.github/workflows/pages.yml'),'utf8');
 check(workflow.includes('workflow_dispatch:')&&!/^\s*(push|pull_request|schedule):/m.test(workflow)&&workflow.includes("github.repository_owner != 'naminoto'")&&workflow.includes('YORIBI_PREVIEW_OWNER'),'Manual deployment/owner guard');
 check(record.previewOwner==='yoribi-preview'&&record.previewUrl==='https://yoribi-preview.github.io/yoribi-test/','Unapproved target');
-console.log(JSON.stringify({audit:'PASS',repositoryFiles:expected.length,siteFiles:record.files.length,previewName:manifest.name,manualOnly:true,noUserData:true}));
+check(record.sourceVersion==='1.4.3'&&record.appVersion==='1.4.3-candidate'&&record.releaseChannel==='candidate'
+  &&record.officialRelease===false&&record.compatibility?.indexedDBVersion===3&&record.compatibility?.zipFormatVersion===1,'Candidate metadata');
+check(typeof record.avatarDiagnostics==='boolean','Diagnostics metadata missing');
+check(record.candidateChanges?.includes('Preview-only avatar picker event diagnostics')===record.avatarDiagnostics,'Diagnostics metadata mismatch');
+check(record.candidateChanges?.includes('iPhone multiple photo picker with exactly-one selection safeguard'),'Picker safeguard metadata');
+const appScript=record.files.find(file=>/^assets\/index-[A-Za-z0-9_-]+\.js$/.test(file.path));
+check(appScript,'Application script missing');
+const appCode=await readFile(join(root,'site',appScript.path),'utf8');
+check(appCode.includes('yoribi-preview-version')&&appCode.includes('プロフィール画像は1枚だけ選択してください。'),'Preview marker or picker safeguard missing');
+const diagnosticSignals=['avatar-diagnostics','avatar-picker-diagnostic-log','写真選択診断（端末内のみ）','診断ログをコピー'];
+check(diagnosticSignals.every(signal=>appCode.includes(signal)===record.avatarDiagnostics),'Diagnostics bundle state mismatch');
+check(/version:'1\.4\.3',date:null/.test(await readFile(join(source,'src/release-history.js'),'utf8')),'Pending production release history missing');
+console.log(JSON.stringify({audit:'PASS',repositoryFiles:expected.length,siteFiles:record.files.length,previewName:manifest.name,
+  sourceVersion:record.sourceVersion,appVersion:record.appVersion,avatarDiagnostics:record.avatarDiagnostics,manualOnly:true,noUserData:true}));

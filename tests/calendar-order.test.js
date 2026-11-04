@@ -1,4 +1,5 @@
 import 'fake-indexeddb/auto';
+import {imageFixture} from './helpers/image-fixture.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { openDatabase, savePerson, all, reorderDayEvents, get, deletePerson } from '../src/db.js';
@@ -10,7 +11,7 @@ const date='2028-05-10';
 async function fixture(){
   const db=await openDatabase('order-'+crypto.randomUUID());
   const a=await savePerson(db,{displayName:'A',category:'OTHER',anniversaries:[{type:'BIRTHDAY',month:5,day:10,year:2000},
-    {id:crypto.randomUUID(),type:'CUSTOM',title:'記念日',month:5,day:10,year:2020,notify:true}]},{image:new Blob(['image'],{type:'image/png'})});
+    {id:crypto.randomUUID(),type:'CUSTOM',title:'記念日',month:5,day:10,year:2020,notify:true}]},{image:imageFixture()});
   const b=await savePerson(db,{displayName:'B',category:'PET',anniversaries:[{type:'BIRTHDAY',month:5,day:10}]});
   return {db,a,b};
 }
@@ -20,7 +21,7 @@ test('誕生日と同一人物の記念日を独立して並び替え、代表1�
   await reorderDayEvents(db,date,ids);assert.deepEqual(entries(await all(db,'people')).map(entryId),ids);
   assert.equal(entryId(entries(await all(db,'people'))[0]),ids[0]);
   assert.equal((await get(db,'people',a.id)).anniversaries[0].year,2000);
-  assert.deepEqual(await all(db,'images'),[{personId:a.id,blob:new Blob(['image'],{type:'image/png'}),type:'image/png'}]);db.close();
+  assert.deepEqual(await all(db,'images'),[{personId:a.id,blob:imageFixture(),type:'image/png'}]);db.close();
 });
 test('順序は再起動しても保持しDB v3を維持',async()=>{
   let {db}=await fixture();const name=db.name,ids=entries(await all(db,'people')).map(entryId).reverse();

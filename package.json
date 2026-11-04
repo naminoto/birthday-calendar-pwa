@@ -1,11 +1,12 @@
 {
   "name": "birthday-circle-local-pwa",
   "private": true,
-  "version": "1.4.2",
+  "version": "1.4.3",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build && node scripts/generate-sw.mjs && node scripts/audit-dist.mjs",
+    "build:preview-diagnostics": "vite build --mode avatar-diagnostics && node scripts/generate-sw.mjs && node scripts/audit-dist.mjs --allow-avatar-diagnostics",
     "audit:dist": "node scripts/audit-dist.mjs",
     "preview": "vite preview",
     "test": "node --test"
@@ -15,6 +16,6 @@
   },
   "devDependencies": {
     "fake-indexeddb": "6.2.5",
-    "vite": "8.3.0"
+    "vite": "8.3.5"
   }
 }

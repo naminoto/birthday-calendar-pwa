@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 
 // Pagesへアップロードするdistだけを検査する。ソース/テスト/ZIP/DBを公開物へ混ぜない。
 const root = fileURLToPath(new URL('../dist/', import.meta.url));
+const allowAvatarDiagnostics = process.argv.includes('--allow-avatar-diagnostics');
 const required = ['index.html', 'manifest.webmanifest', 'sw.js',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png',
   'icons/apple-touch-icon.png','icons/favicon-48.png',
@@ -17,6 +18,7 @@ const forbidden = [
   ['DB接続文字列', /(?:jdbc:postgresql:|postgres(?:ql)?:\/\/)/i],
   ['ローカル絶対パス', /(?:[A-Z]:\\(?:Users|プログラミング)\\|\/home\/runner\/|\/Users\/[^/]+\/)/i],
   ['X API送信先', /(?:api\.x\.com|api\.twitter\.com)/i],
+  ...allowAvatarDiagnostics ? [] : [['独立テスト版の写真選択診断', /(?:avatar-diagnostics|avatar-picker-diagnostic-log|写真選択診断（端末内のみ）|診断ログをコピー)/]],
 ];
 function assert(condition, message) { if (!condition) throw new Error(`公開物監査: ${message}`); }
 async function walk(directory) {

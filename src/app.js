@@ -12,6 +12,10 @@ import { CATEGORIES, birthdayOf, birthdayRows, anniversaryYears,
 import { synchronizeNotifications } from './notifications.js';
 import { setupAvatarEditor } from './avatar-editor.js';
 import { createBackup, inspectBackup, restoreBackup } from './backup.js';
+import {encryptBackup,decryptBackup,isEncryptedBackup} from './encrypted-backup.js';
+import {askBackupPassword} from './password-dialog.js';
+import {isRetired,startDataSession,eraseManagedData,RETIRED_KEY} from './data-lifecycle.js';
+import {setupExitUI,refreshExitGuide,showStopped} from './exit-ui.js';
 import { clearOldShellCaches, cacheBytes } from './cache-ops.js';
 import { t, setLanguage, currentLanguage, applyStaticTranslations, categoryLabel,
   anniversaryLabel, monthLabel, dayLabel, errorText } from './i18n.js';
@@ -19,6 +23,7 @@ import { setupUpdates } from './update.js';
 import { APP_VERSION } from './version.js';
 import { eventKey, movedPerson, birthdayAssignedPerson } from './calendar-move.js';
 import {setupPersonMenu} from './person-menu.js';
+import {setupIOSStorageGuidance} from './ios-storage-guidance.js';
 import { setupCalendarGestures } from './calendar-gestures.js';
 import { loadAppearance, saveAppearance } from './db.js';
 import { DEFAULT_APPEARANCE, applyAppearance } from './appearance.js';
@@ -29,8 +34,12 @@ import { homeOverview } from './home.js';
 import {RAIL_SORTS,sortedRailPeople} from './rail-management.js';
 
 const $ = (id) => document.getElementById(id);
-let avatarEditor, updates, gestures, personMenu, railMenu, birthDateFields, birthYearFields, pendingMove = null, moveSaving = false;
+let avatarEditor, updates, gestures, personMenu, railMenu, birthDateFields, birthYearFields, iosStorageGuide, pendingMove = null, moveSaving = false;
 let calendarDialogOrigin=null;
+let restoreBusy=false;
+let exportBusy=false;
+let deletionBusy=false;
+let dataSession;
 const compactCalendar = window.matchMedia('(max-width:520px)');
 const systemTheme = window.matchMedia('(prefers-color-scheme: dark)');
 let appearance = { ...DEFAULT_APPEARANCE };
@@ -66,6 +75,7 @@ function anniversaryText(ann, date) { const years = anniversaryYears(ann, date);
   return `${eventTitle(ann)}${years ? ` · ${t('anniversaryYears', { years })}` : ''}`; }
 
 async function refresh() {
+  if(state.ending)return;
   gestures?.cancel();
   const [people, images] = await Promise.all([all(state.db, 'people'), all(state.db, 'images')]);
   const previousImages = state.images;
@@ -490,9 +500,12 @@ function openForm(id = null, initialDate = null) {
   $('link-fields').replaceChildren(...(person?.links ?? []).map(linkRow));
   $('person-error').hidden = true;
   avatarEditor.reset(person ? state.images.get(person.id) : null);
+  $('person-dialog-title').tabIndex = -1;
   $('person-dialog').showModal();
   $('person-form').scrollTop = 0;
-  $('person-name').focus({ preventScroll:true });
+  // 入力欄を初期フォーカスにするとiPhoneでキーボードが開く。見出しを読み上げ対象にし、
+  // 利用者が実際に入力欄を操作するまでは表示領域を保つ。
+  $('person-dialog-title').focus({ preventScroll:true });
 }
 
 async function submitPerson(event) {
@@ -599,16 +612,31 @@ async function renderStorageStats() {
 }
 
 async function exportBackup() {
-  try { const blob = await createBackup(state.db); const url = URL.createObjectURL(blob);
-    const link = el('a'); link.href = url; link.download = `birthday-circle-local-${state.today}.zip`;
+  if(exportBusy||restoreBusy||state.ending)return;
+  exportBusy=true;let password;
+  for(const id of ['export-backup','transfer-export'])$(id).disabled=true;
+  try { password=await askBackupPassword(t,true);if(password===null)return;
+    toast(t('encrypting'));
+    const blob = await encryptBackup(await createBackup(state.db),password);password=null;
+    const url = URL.createObjectURL(blob);
+    const link = el('a'); link.href = url; link.download = `yoribi-backup-${state.today}.yoribi`;
     document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 60000);
     toast(t('backupDone')); }
   catch (error) { toast(errorText(error)); }
+  finally{password=null;exportBusy=false;for(const id of ['export-backup','transfer-export'])$(id).disabled=false;}
 }
 async function previewRestore(file) {
+  if(restoreBusy||exportBusy||state.ending){toast(t('restoreBusy'));return;}
+  const busy=value=>{restoreBusy=value;$('import-backup').disabled=value;$('transfer-import').disabled=value;};
+  busy(true);
   const host = $('restore-preview'); host.hidden = true; state.preparedBackup = null;
   try {
-    const prepared = await inspectBackup(file); state.preparedBackup = prepared;
+    let password,zip=file;
+    try{if(await isEncryptedBackup(file)){
+      password=await askBackupPassword(t,false);if(password===null)return;
+      toast(t('decrypting'));zip=await decryptBackup(file,password);
+    }}finally{password=null;}
+    const prepared = await inspectBackup(zip); state.preparedBackup = prepared;
     const current = await storageSummary(state.db);
     host.replaceChildren(el('p', '', t('backupDate', { date:prepared.manifest.createdAt, version:prepared.manifest.formatVersion })),
       el('p', '', t('backupCounts', { people:prepared.summary.people, images:prepared.summary.images, notices:prepared.summary.notifications })),
@@ -619,19 +647,24 @@ async function previewRestore(file) {
     backupButton.onclick = exportBackup;
     const confirmButton = el('button', 'primary', t('restoreButton')); confirmButton.type = 'button';
     confirmButton.onclick = async () => {
-      if (state.preparedBackup !== prepared) return;
+      if (state.preparedBackup !== prepared||restoreBusy) return;
       if (!confirm(t('restoreConfirm'))) return;
       if (prompt(t('restorePrompt')) !== t('restoreWord')) return;
+      busy(true);confirmButton.disabled=true;backupButton.disabled=true;
       try { await restoreBackup(state.db, prepared); state.preparedBackup = null; host.hidden = true;
+        try{
         appearance = await loadAppearance(state.db); applyAppearance(appearance);
         setLanguage(await loadLanguage(state.db)); $('language-choice').value = currentLanguage();
-        applyStaticTranslations(); avatarEditor.refreshLanguage(); birthYearFields.refresh();birthDateFields.refresh(); await refresh();
-        await renderStorageStats(); updates?.refreshLanguage(); toast(t('restoreDone')); }
+        applyStaticTranslations();refreshExitGuide(t); avatarEditor.refreshLanguage();iosStorageGuide.refreshLanguage(); birthYearFields.refresh();birthDateFields.refresh(); await refresh();
+        await renderStorageStats(); updates?.refreshLanguage(); toast(t('restoreDone'));
+        }catch{toast(t('restoreDisplayFailed'));} }
       catch (error) { toast(errorText(error)); }
+      finally{busy(false);confirmButton.disabled=false;backupButton.disabled=false;}
     };
     const actions = el('div', 'actions'); actions.append(backupButton, confirmButton);
     host.append(actions); host.hidden = false;
   } catch (error) { toast(t('restoreFailed', { message:errorText(error) })); }
+  finally{busy(false);}
 }
 
 function initOptions() {
@@ -651,6 +684,8 @@ function initOptions() {
 
 function bindEvents() {
   setupSettingsSections(t); setupOutlineIcons();
+  setupExitUI(t,{backup:exportBackup,erase:deleteDeviceData});
+  iosStorageGuide=setupIOSStorageGuidance({t,openSettings:()=>switchTab('settings')});
   birthDateFields=setupMonthDay($('person-birth-month'),$('person-birth-day'),{monthLabel,dayLabel,empty:()=>t('unregistered')});birthDateFields.bind();
   birthYearFields=setupBirthYear({input:$('person-birth-year'),choice:$('person-birth-year-choice'),mode:$('person-birth-year-mode'),currentYear:todayYear,t});birthYearFields.set();
   $('header-settings').onclick = () => switchTab('settings');
@@ -689,7 +724,7 @@ function bindEvents() {
   $('language-choice').onchange = async (event) => {
     try {
       await saveLanguage(state.db, event.target.value);
-      setLanguage(event.target.value); applyStaticTranslations(); avatarEditor.refreshLanguage();
+      setLanguage(event.target.value); applyStaticTranslations();refreshExitGuide(t); avatarEditor.refreshLanguage();iosStorageGuide.refreshLanguage();
       birthDateFields.refresh();birthYearFields.refresh();
       renderHome(); renderCalendar(); renderPeople(); renderBirthdays(); renderNotifications(); renderSettings();
       if ($('detail-dialog').open && state.detailPersonId) openDetail(state.detailPersonId);
@@ -764,6 +799,7 @@ function bindEvents() {
   $('notification-settings').onsubmit = async (event) => { event.preventDefault(); const fields = event.currentTarget.elements;
     await saveSettings(state.db, Object.fromEntries(['enabled', 'seven', 'three', 'one', 'today']
       .map((key) => [key, fields[key].checked]))); await refresh(); toast(t('settingsSaved')); };
+  $('import-backup').accept='.yoribi,.zip,application/octet-stream,application/zip';
   $('export-backup').onclick = exportBackup;
   $('transfer-export').onclick = exportBackup;
   $('transfer-import').onclick = () => $('import-backup').click();
@@ -778,12 +814,15 @@ function bindEvents() {
 
 async function boot() {
   try {
+    dataSession=await startDataSession();
+    if(isRetired()){state.ending=true;showStopped(t,null,deleteDeviceData);return;}
     initOptions(); bindEvents(); state.db = await openDatabase();
     appearance = await loadAppearance(state.db); applyAppearance(appearance);
     setLanguage(await loadLanguage(state.db)); $('language-choice').value = currentLanguage();
-    $('app-version').textContent = APP_VERSION; applyStaticTranslations();birthYearFields.refresh(); await refresh();
+    $('app-version').textContent = APP_VERSION; applyStaticTranslations();refreshExitGuide(t);birthYearFields.refresh(); await refresh();
+    iosStorageGuide.refreshLanguage();iosStorageGuide.maybeShow({hasData:state.people.length>0});
     switchTab(location.hash.slice(1) || 'home');
-    if (import.meta.env.PROD) updates = await setupUpdates({ t, errorText,
+    if (import.meta.env.PROD) updates = await setupUpdates({ t, errorText,isStopped:()=>Boolean(state.ending),
       confirmUpdate: () => !document.querySelector('dialog[open]') || confirm(t('updateUnsaved')) });
     if (!updates) { $('settings-update-status').textContent = t('updateUnavailable');
       $('settings-check-update').disabled = true; }
@@ -793,4 +832,24 @@ async function boot() {
     console.error(error);
   }
 }
+async function deleteDeviceData(){
+  if(deletionBusy)return;
+  if(exportBusy||restoreBusy||moveSaving||state.railDeleting){toast(t('restoreBusy'));return;}
+  if(!confirm(t('deleteBackupConfirm'))||!confirm(t('deleteWindowsConfirm'))||prompt(t('deletePrompt'))!==t('deleteWord'))return;
+  deletionBusy=true;
+  if($('toast'))toast(t('deleteWorking'));
+  else {const heading=document.querySelector('.stopped-screen h1');if(heading)heading.textContent=t('deleteWorking');}
+  document.body.inert=true;
+  try{
+    const report=await dataSession.exclusive(markEnded=>eraseManagedData(state.db,{markEnded,onStop:()=>{
+      state.ending=true;gestures?.cancel();personMenu?.close(false);railMenu?.close(false);
+      for(const url of state.images.values())URL.revokeObjectURL(url);
+      state.images.clear();state.people=[];state.notices=[];state.preparedBackup=null;
+      showStopped(t);
+    }}));
+    showStopped(t,report,deleteDeviceData);
+  }catch(error){if(state.ending)showStopped(t,null,deleteDeviceData);else toast(errorText(error));}
+  finally{deletionBusy=false;document.body.inert=false;}
+}
+window.addEventListener('storage',event=>{if(event.key===RETIRED_KEY&&event.newValue){state.ending=true;state.db?.close();gestures?.cancel();showStopped(t);}});
 boot();

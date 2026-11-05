@@ -13,7 +13,6 @@ const oldRoot=process.argv[2];
 if(!oldRoot)throw new Error('Usage: node scripts/release-compatibility-preflight.mjs ARCHIVED_SOURCE');
 const oldDB=await import(pathToFileURL(resolve(oldRoot,'src/db.js')));
 const oldBackup=await import(pathToFileURL(resolve(oldRoot,'src/backup.js')));
-const oldModel=await import(pathToFileURL(resolve(oldRoot,'src/model.js')));
 const handles=[];
 async function fresh(api){const db=await api.openDatabase('release-preflight-'+crypto.randomUUID());handles.push(db);return db;}
 async function snapshot(db){
@@ -22,9 +21,10 @@ async function snapshot(db){
     bytes:blob.size,sha256:createHash('sha256').update(new Uint8Array(await blob.arrayBuffer())).digest('hex')})));
   return {version:db.version,records};
 }
+function withoutCategorySettings(value){return {...value,records:value.records.map((rows,index)=>index===2?rows.filter(row=>row.key!=='categories'):rows)};}
 try{
   assert.equal(oldDB.DB_VERSION,3);assert.equal(currentDB.DB_VERSION,3);
-  assert.equal(oldBackup.BACKUP_FORMAT_VERSION,1);assert.equal(currentBackup.BACKUP_FORMAT_VERSION,1);
+  assert.equal(oldBackup.BACKUP_FORMAT_VERSION,1);assert.equal(currentBackup.BACKUP_FORMAT_VERSION,2);
   const source=await fresh(oldDB),target=await fresh(currentDB),oldTarget=await fresh(oldDB);
   const image=new Blob([readFileSync('public/icons/favicon-48.png')],{type:'image/png'});
   const person=await oldDB.savePerson(source,{displayName:'架空の互換性テスト',category:'REAL_FRIEND',memo:'架空メモ',
@@ -46,12 +46,14 @@ try{
   assert.deepEqual(await snapshot(source),initial,'Inspection must not mutate source');
   await currentDB.savePerson(target,{displayName:'移行先だけの架空人物',category:'OTHER',anniversaries:[]});
   await currentBackup.restoreBackup(target,preview);
-  assert.deepEqual(await snapshot(target),initial,'Official ZIP to current must retain all four stores and image bytes');
+  assert.deepEqual(withoutCategorySettings(await snapshot(target)),initial,'Official ZIP to current must retain all legacy stores and image bytes');
   assert.equal((await currentDB.get(target,'people',person.id)).category,'REAL_FRIEND');
   const currentZIP=await currentBackup.createBackup(target);
   assert.equal((await currentBackup.inspectBackup(currentZIP)).manifest.appVersion,currentBackup.APP_VERSION);
-  await oldBackup.restoreBackup(oldTarget,await oldBackup.inspectBackup(currentZIP));
-  assert.deepEqual(await snapshot(oldTarget),initial,'Common-range current ZIP to official must retain data');
+  await oldDB.savePerson(oldTarget,{displayName:'旧版保持確認',category:'OTHER',anniversaries:[]});
+  const oldTargetBefore=await snapshot(oldTarget);
+  await assert.rejects(oldBackup.inspectBackup(currentZIP));
+  assert.deepEqual(await snapshot(oldTarget),oldTargetBefore,'Future ZIP rejection must not mutate old target');
   const reverseLimits=[];
   for(const year of [100,9999]){
     await currentDB.savePerson(target,{...await currentDB.get(target,'people',person.id),anniversaries:[
@@ -59,14 +61,13 @@ try{
     const backup=await currentBackup.createBackup(target);
     await currentBackup.inspectBackup(backup);
     const before=await snapshot(oldTarget);
-    const oldAccepts=year>=(oldModel.BIRTH_YEAR_MIN??1900)&&year<=(oldModel.BIRTH_YEAR_MAX??2100);
-    if(oldAccepts)await oldBackup.inspectBackup(backup);else await assert.rejects(oldBackup.inspectBackup(backup));
-    assert.deepEqual(await snapshot(oldTarget),before,'Unsupported ZIP must not mutate old target');
-    reverseLimits.push({year,currentAccepts:true,officialRejects:!oldAccepts,oldDataPreserved:true});
+    await assert.rejects(oldBackup.inspectBackup(backup));
+    assert.deepEqual(await snapshot(oldTarget),before,'Unsupported future ZIP must not mutate old target');
+    reverseLimits.push({year,currentAccepts:true,officialRejectsFutureFormat:true,oldDataPreserved:true});
   }
-  console.log(JSON.stringify({officialToCurrent:true,currentToOfficialWithinOldYearRange:true,
+  console.log(JSON.stringify({officialToCurrent:true,currentToOfficialRejectedWithoutMutation:true,
     fromAppVersion:oldBackup.APP_VERSION,toAppVersion:currentBackup.APP_VERSION,
-    databaseVersion:3,backupFormatVersion:1,people:initial.records[0].length,images:initial.records[1].length,
+    databaseVersion:3,oldBackupFormatVersion:1,currentBackupFormatVersion:2,people:initial.records[0].length,images:initial.records[1].length,
     notifications:initial.records[3].length,theme:'dark',language:'en',categoryUnchanged:true,
     anniversariesAndOrder:true,imageSHA256Unchanged:true,fullyReplacedDestination:true,reverseLimits}));
 }finally{for(const db of handles)db.close();}

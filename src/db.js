@@ -1,6 +1,8 @@
 import { DEFAULT_SETTINGS, birthdayOf, normalizePerson } from './model.js';
 import { normalizeAppearance } from './appearance.js';
 import { reorderedPeople } from './calendar-order.js';
+import {addCustomCategory,categoryExists,normalizeCategoryConfig,removeCustomCategory,
+  renameCustomCategory,setCategoryColor,setCategoryHidden,setAllCategoriesVisible} from './categories.js';
 
 export const DB_NAME = 'birthday-circle-local';
 export const DB_VERSION = 3;
@@ -120,6 +122,70 @@ export async function saveLanguage(db, language) {
   await completed(tx);
 }
 
+export async function loadCategoryConfig(db) {
+  return normalizeCategoryConfig((await get(db,'settings','categories'))?.value);
+}
+
+// DB versionは変えず、既存settings storeへ既定値を一度だけ保存する冪等migration。
+// 旧人物の安定IDは書き換えず、バックアップ前後の完全なsnapshotを一致させる。
+export async function ensureCategoryConfig(db) {
+  const tx=db.transaction('settings','readwrite'),done=completed(tx),store=tx.objectStore('settings');
+  const record=await result(store.get('categories'));
+  const config=normalizeCategoryConfig(record?.value);
+  if(!record)store.put({key:'categories',value:config});
+  await done;
+  return config;
+}
+
+async function updateCategoryConfig(db,update) {
+  const tx=db.transaction('settings','readwrite'),done=completed(tx),store=tx.objectStore('settings');
+  let next;
+  try{
+    const current=normalizeCategoryConfig((await result(store.get('categories')))?.value);
+    next=normalizeCategoryConfig(update(current));
+    store.put({key:'categories',value:next});
+    await done;
+    return next;
+  }catch(error){
+    try{tx.abort();}catch{}
+    await done.catch(()=>{});
+    throw error;
+  }
+}
+
+export function createCustomCategory(db,name,color) {
+  return updateCategoryConfig(db,(config)=>addCustomCategory(config,name,color));
+}
+export function renameCategory(db,id,name) {
+  return updateCategoryConfig(db,(config)=>renameCustomCategory(config,id,name));
+}
+export function updateCategoryColor(db,id,color) {
+  return updateCategoryConfig(db,(config)=>setCategoryColor(config,id,color));
+}
+export function updateCategoryVisibility(db,id,hidden) {
+  return updateCategoryConfig(db,(config)=>setCategoryHidden(config,id,hidden));
+}
+export function updateAllCategoryVisibility(db,visible) {
+  return updateCategoryConfig(db,(config)=>setAllCategoriesVisible(config,visible));
+}
+
+// カテゴリ削除と人物の移動を同じtransactionに入れ、途中失敗時は両方を元へ戻す。
+export async function deleteCustomCategory(db,id,replacementId=null) {
+  const tx=db.transaction(['settings','people'],'readwrite'),done=completed(tx);
+  const settingsStore=tx.objectStore('settings'),peopleStore=tx.objectStore('people');
+  const [record,people]=await Promise.all([result(settingsStore.get('categories')),result(peopleStore.getAll())]);
+  let config;
+  try{
+    config=normalizeCategoryConfig(record?.value);
+    const used=people.filter((person)=>person.category===id);
+    if(used.length&&(!replacementId||replacementId===id||!categoryExists(replacementId,config)))throw new Error('移動先のカテゴリを選択してください。');
+    const next=removeCustomCategory(config,id);
+    for(const person of used)peopleStore.put({...person,category:replacementId,updatedAt:new Date().toISOString()});
+    settingsStore.put({key:'categories',value:next});
+    await done;return {config:next,moved:used.length};
+  }catch(error){try{tx.abort();}catch{/* already complete */}await done.catch(()=>{});throw error;}
+}
+
 // 人物・画像・関連通知を1トランザクションで更新し、途中失敗時には全て元のまま残します。
 export async function savePerson(db, input, { image = null, removeImage = false } = {}) {
   if (image && removeImage) throw new Error('画像の追加と削除は同時に指定できません。');
@@ -137,17 +203,24 @@ export async function savePerson(db, input, { image = null, removeImage = false 
   const changedAnniversaryIds = new Set([...oldAnniversaries.keys()].filter((id) =>
     JSON.stringify(oldAnniversaries.get(id)) !== JSON.stringify(newAnniversaries.get(id))));
   const existingNotifications = changedBirthday || changedAnniversaryIds.size ? await all(db, 'notifications') : [];
-  const tx = db.transaction(['people', 'images', 'notifications'], 'readwrite');
-  tx.objectStore('people').put(person);
-  if (image) tx.objectStore('images').put({ personId: person.id, blob: image, type: image.type || 'image/jpeg' });
-  if (removeImage) tx.objectStore('images').delete(person.id);
-  if (changedBirthday || changedAnniversaryIds.size) {
-    for (const notice of existingNotifications) {
-      if (notice.personId === person.id && (changedBirthday && !notice.anniversaryId
-        || changedAnniversaryIds.has(notice.anniversaryId))) tx.objectStore('notifications').delete(notice.id);
-    }
-  }
-  await completed(tx);
+  const tx = db.transaction(['people', 'images', 'notifications','settings'], 'readwrite'),done=completed(tx);
+  let invalid;
+  tx.objectStore('settings').get('categories').onsuccess=(event)=>{
+    try{
+      const categories=normalizeCategoryConfig(event.target.result?.value);
+      if(!categoryExists(person.category,categories))throw new Error('カテゴリが正しくありません。');
+      tx.objectStore('people').put(person);
+      if (image) tx.objectStore('images').put({ personId: person.id, blob: image, type: image.type || 'image/jpeg' });
+      if (removeImage) tx.objectStore('images').delete(person.id);
+      if (changedBirthday || changedAnniversaryIds.size) {
+        for (const notice of existingNotifications) {
+          if (notice.personId === person.id && (changedBirthday && !notice.anniversaryId
+            || changedAnniversaryIds.has(notice.anniversaryId))) tx.objectStore('notifications').delete(notice.id);
+        }
+      }
+    }catch(error){invalid=error;tx.abort();}
+  };
+  try{await done;}catch(error){throw invalid??error;}
   return person;
 }
 
@@ -201,6 +274,8 @@ export async function markAllRead(db, now = new Date().toISOString()) {
 // 復元時も4 storeを単一transactionに入れ、途中で失敗した場合は旧データへロールバック。
 export async function replaceAllData(db, snapshot) {
   const appearance = normalizeAppearance(snapshot.appearance);
+  const categories=normalizeCategoryConfig(snapshot.categories);
+  if(snapshot.people.some((person)=>!categoryExists(person.category,categories)))throw new Error('カテゴリと人物の参照が一致しません。');
   const tx = db.transaction(STORES, 'readwrite');
   const done=completed(tx);
   try{
@@ -210,8 +285,9 @@ export async function replaceAllData(db, snapshot) {
   tx.objectStore('settings').put({ key: 'notifications', value: snapshot.settings });
   tx.objectStore('settings').put({ key: 'language', value: snapshot.language === 'en' ? 'en' : 'ja' });
   tx.objectStore('settings').put({ key:'appearance', value:appearance });
+  tx.objectStore('settings').put({ key:'categories', value:categories });
   for (const notice of snapshot.notifications) tx.objectStore('notifications').put(notice);
-  const counts={people:snapshot.people.length,images:snapshot.images.length,settings:3,notifications:snapshot.notifications.length};
+  const counts={people:snapshot.people.length,images:snapshot.images.length,settings:4,notifications:snapshot.notifications.length};
   for(const name of STORES)tx.objectStore(name).count().onsuccess=event=>{
     if(event.target.result!==counts[name])tx.abort();
   };

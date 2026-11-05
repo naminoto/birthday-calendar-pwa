@@ -2,6 +2,13 @@
 // 未公開候補の公開日はnullのまま捏造せず、正式公開時に実日付へ置き換える。
 // 公開済みの日付と内容は正式repoのRelease commit・README・公開前/最終検証資料で確認する。
 export const RELEASE_HISTORY = [
+  {version:'1.5.0',date:'2026-11-05',changes:[
+    {category:'new',ja:'8種類の既定カテゴリと自由に追加できるカスタムカテゴリを導入し、名前・色・使用人数を設定から管理できるようにしました。',en:'Added eight built-in categories and custom categories with name, color, and usage management in Settings.'},
+    {category:'new',ja:'人物の追加・編集中に、入力内容や画像を保持したまま新しいカテゴリを作成してその場で選択できるようにしました。',en:'Added in-form category creation while preserving person details and images, with the new category selected immediately.'},
+    {category:'improvement',ja:'カテゴリの表示順を「既定7種、カスタム作成順、その他」に統一し、カレンダーでは複数カテゴリを同時に絞り込めるようにしました。',en:'Unified category order as seven built-ins, custom creation order, then Other, and added multi-category calendar filtering.'},
+    {category:'improvement',ja:'バックアップ内部形式v2にカテゴリ設定を含め、従来のv0／v1 ZIPと暗号化.yoribiの復元互換性を維持しました。',en:'Included category settings in backup format v2 while retaining restore compatibility with v0/v1 ZIP and encrypted .yoribi backups.'},
+    {category:'improvement',ja:'XプロフィールURLからusernameを補完する条件を人物フォームに日英で案内するようにしました。',en:'Added bilingual guidance describing when username is completed from an X profile URL.'},
+  ]},
   {version:'1.4.3',date:'2026-11-04',changes:[
     {category:'new',ja:'パスワード付きの暗号化バックアップ（.yoribi）を追加し、従来のZIPバックアップも引き続き読み込めるようにしました。',en:'Added password-protected encrypted .yoribi backups while retaining import compatibility with legacy ZIP backups.'},
     {category:'security',ja:'AES-256-GCM暗号化、ZIP・画像の厳密な検証、復元失敗時のロールバックにより、バックアップと復元の安全性を高めました。',en:'Improved backup and restore safety with AES-256-GCM encryption, strict ZIP and image validation, and rollback on restore failure.'},

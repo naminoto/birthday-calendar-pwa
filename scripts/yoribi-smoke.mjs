@@ -2,7 +2,7 @@ export async function verifyYoribiUI({evaluate,until,check,command,screenshot=as
   await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
   check(await evaluate(`document.title==='Yoribi（ヨリビ）'&&document.querySelector('.brand strong').textContent==='Yoribi'`),'Yoribi表示名');
   await evaluate(`document.querySelector('#header-settings').click()`);
-  check(await evaluate(`location.hash==='#settings'&&document.querySelectorAll('.setting-section').length===6
+  check(await evaluate(`location.hash==='#settings'&&document.querySelectorAll('.setting-section').length===7
     &&[...document.querySelectorAll('.setting-section')].every(s=>!s.open)`),'初期設定は全セクション折りたたみ');
   await screenshot('yoribi-settings-closed-390');
   await evaluate(`document.querySelector('#appearance-section summary').focus()`);

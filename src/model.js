@@ -1,7 +1,7 @@
-export const CATEGORIES = Object.freeze({
-  X_FRIEND: 'Xの友だち', REAL_FRIEND: '現実の知り合い',
-  CHARACTER: 'キャラクター', PET: 'ペット', OTHER: 'その他',
-});
+import {FIXED_CATEGORIES,isWellFormedCategoryId} from './categories.js';
+
+// 旧IDは人物・ZIPとの互換性のため維持し、表示名はcategories.jsで日英に分離する。
+export const CATEGORIES = Object.freeze(Object.fromEntries(FIXED_CATEGORIES.map((entry)=>[entry.id,entry.ja])));
 export const ANNIVERSARY_TYPES = Object.freeze({
   BIRTHDAY: '誕生日', OSHI_START: '推し始めた日', FRIEND_SINCE: '友だちになった日',
   WORK_RELEASE: '作品公開日', WEDDING_ANNIVERSARY: '結婚記念日', CUSTOM: '記念日',
@@ -84,8 +84,10 @@ export function anniversaryRows(people, today) {
 
 export function calendarEvents(people, year, month, category = 'ALL', eventType = 'ALL') {
   const byDay = new Map();
+  const selected=category==='ALL'||category==null?null:category instanceof Set?category
+    :new Set(Array.isArray(category)?category:[category]);
   for (const person of people) {
-    if (category !== 'ALL' && person.category !== category) continue;
+    if (selected && !selected.has(person.category)) continue;
     for (const ann of person.anniversaries ?? []) {
       if (eventType === 'BIRTHDAY' && ann.type !== 'BIRTHDAY'
         || eventType === 'ANNIVERSARY' && ann.type === 'BIRTHDAY') continue;
@@ -136,7 +138,7 @@ export function normalizePerson(input, existing = null, now = new Date().toISOSt
   const displayName = String(input.displayName ?? '').trim();
   if (!displayName || displayName.length > 100) throw new Error('表示名は1〜100文字で入力してください。');
   const category = input.category ?? 'OTHER';
-  if (!Object.hasOwn(CATEGORIES,category)) throw new Error('カテゴリが正しくありません。');
+  if (!isWellFormedCategoryId(category)) throw new Error('カテゴリが正しくありません。');
   const username = String(input.username ?? '').trim().replace(/^@/, '') || null;
   if (username && !/^[A-Za-z0-9_]{1,50}$/.test(username)) throw new Error('X usernameの形式が正しくありません。');
   let xProfileUrl = String(input.xProfileUrl ?? '').trim() || null;

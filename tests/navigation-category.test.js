@@ -7,12 +7,12 @@ import {setLanguage,categoryLabel,t} from '../src/i18n.js';
 import {openDatabase,savePerson,all} from '../src/db.js';
 import {createBackup,inspectBackup,restoreBackup} from '../src/backup.js';
 
-test('カテゴリ表示名だけを日英で変更し他カテゴリを維持する',()=>{
+test('初期8カテゴリを日英で表示し旧内部IDを維持する',()=>{
   const previous=globalThis.document;globalThis.document={documentElement:{lang:'ja'}};
-  try{setLanguage('ja');assert.equal(categoryLabel('REAL_FRIEND'),'現実の知り合い');assert.equal(categoryLabel('PET'),'ペット');assert.equal(t('addPerson'),'＋ 人物を追加');
-    setLanguage('en');assert.equal(categoryLabel('REAL_FRIEND'),'In-person acquaintances');assert.equal(categoryLabel('PET'),'Pet');assert.equal(t('addPerson'),'+ Add person');
+  try{setLanguage('ja');assert.equal(categoryLabel('REAL_FRIEND'),'友だち・知り合い');assert.equal(categoryLabel('PET'),'ペット');assert.equal(t('addPerson'),'＋ 人物を追加');
+    setLanguage('en');assert.equal(categoryLabel('REAL_FRIEND'),'Friends & Acquaintances');assert.equal(categoryLabel('PET'),'Pets');assert.equal(t('addPerson'),'+ Add person');
   }finally{setLanguage('ja');globalThis.document=previous;}
-  assert.deepEqual(Object.keys(CATEGORIES),['X_FRIEND','REAL_FRIEND','CHARACTER','PET','OTHER']);
+  assert.deepEqual(Object.keys(CATEGORIES),['X_FRIEND','REAL_FRIEND','FAMILY_RELATIVE','STREAMER_VTUBER','CELEBRITY','CHARACTER','PET','OTHER']);
 });
 test('既存REAL_FRIENDは名前の編集・検索・分類絞り込みで維持される',()=>{
   const p=normalizePerson({displayName:'架空の知人',category:'REAL_FRIEND',memo:'仕事関係',anniversaries:[],links:[]});
@@ -21,7 +21,7 @@ test('既存REAL_FRIENDは名前の編集・検索・分類絞り込みで維持
   assert.equal(filterPeople([edited],{category:'REAL_FRIEND',search:'仕事'}).length,1);
   assert.equal(filterPeople([edited],{category:'PET'}).length,0);
 });
-test('DB v3とZIP v1は旧カテゴリ値REAL_FRIENDを往復で保持する',async()=>{
+test('DB v3とZIP v2は旧カテゴリ値REAL_FRIENDを往復で保持する',async()=>{
   const db=await openDatabase(`nav-category-${crypto.randomUUID()}`);
   try{await savePerson(db,{displayName:'架空の知人',category:'REAL_FRIEND',anniversaries:[],links:[]});
     const before=await all(db,'people');const zip=await createBackup(db);const inspected=await inspectBackup(zip);

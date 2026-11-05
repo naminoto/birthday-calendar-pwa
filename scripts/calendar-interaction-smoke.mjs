@@ -1,5 +1,15 @@
 // 呼び出し元の一時Edgeプロファイルだけを使う。CDP入力から実際のPointer Eventsも検証。
 export async function verifyCalendarInteractions({ evaluate, until, check, command, sleep, screenshot = async () => {} }) {
+  const setCategories=async(ids='ALL')=>{
+    await evaluate(`document.querySelector(${JSON.stringify(ids==='ALL'?'#calendar-categories-all':'#calendar-categories-none')}).click()`);
+    await until(()=>evaluate(ids==='ALL'
+      ? '[...document.querySelectorAll("#calendar-category-options input")].every(node=>node.checked)'
+      : '[...document.querySelectorAll("#calendar-category-options input")].every(node=>!node.checked)'), '操作検証カテゴリ初期化');
+    if(ids!=='ALL')for(const id of ids){
+      await evaluate(`document.querySelector('#calendar-category-options input[data-category-id=${JSON.stringify(id)}]').click()`);
+      await until(()=>evaluate(`document.querySelector('#calendar-category-options input[data-category-id=${JSON.stringify(id)}]')?.checked===true`),'操作検証カテゴリ選択');
+    }
+  };
   const records=()=>evaluate(`new Promise(done=>{const r=indexedDB.open('birthday-circle-local');r.onsuccess=()=>{const db=r.result,q=db.transaction('people').objectStore('people').getAll();q.onsuccess=()=>{db.close();done(q.result);};};})`);
   check((await records()).length===0,'操作検証は空の一時DBでのみ実行');
   const goMonth=()=>evaluate(`(()=>{document.querySelector('[data-tab=calendar]').click();const match=document.querySelector('#month-title').textContent.match(/(\\d+)年(\\d+)月/);
@@ -46,7 +56,7 @@ export async function verifyCalendarInteractions({ evaluate, until, check, comma
   await evaluate(`document.querySelector('[data-date="2028-05-10"]').scrollIntoView({block:'center'});document.querySelector('#toast').hidden=true;`);
   await screenshot('calendar-fixed-height-390');
   const data=await records(), main=data.find(p=>p.displayName==='操作テスト0');
-  await evaluate(`document.querySelector('#calendar-category').value='OTHER';document.querySelector('#calendar-category').dispatchEvent(new Event('change'))`);
+  await setCategories(['OTHER']);
   const selector=(key)=>`.calendar-event[data-person-id="${main.id}"][data-event-key="${key}"]`;
   await evaluate(`window.__pointerTrace=[];for(const type of ['pointerdown','pointermove','pointerup','pointercancel'])document.addEventListener(type,event=>window.__pointerTrace.push({type:event.type,pointer:event.pointerType,trusted:event.isTrusted}),true);`);
   async function drag(key, date, touch=false, mode='normal') {
@@ -135,7 +145,7 @@ export async function verifyCalendarInteractions({ evaluate, until, check, comma
   check(await evaluate('!document.querySelector("#clear-selection").hidden'),'キーボード選択');
   await evaluate('document.querySelector("#clear-selection").click()');
   await command('Emulation.clearDeviceMetricsOverride');
-  await evaluate(`document.querySelector('#calendar-category').value='ALL';document.querySelector('#calendar-category').dispatchEvent(new Event('change'))`);
+  await setCategories('ALL');
   const pc=await measure();check(pc.square&&pc.visible===1,'PC正方形・1予定');
   const trace=await evaluate('window.__pointerTrace');
   for(const pointer of ['mouse','touch'])for(const type of ['pointerdown','pointermove','pointerup'])check(trace.some(e=>e.type===type&&e.pointer===pointer&&e.trusted),'実Pointer Events '+pointer+' '+type);

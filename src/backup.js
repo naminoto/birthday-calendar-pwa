@@ -7,8 +7,9 @@ import { DEFAULT_SETTINGS, birthdayOf, dateParts, normalizePerson, TIMINGS,
   occurrenceForYear } from './model.js';
 import { anniversaryNotificationId, notificationId } from './notifications.js';
 import { APP_VERSION } from './version.js';
+import {categoryDefinitions,categoryExists,normalizeCategoryConfig} from './categories.js';
 
-export const BACKUP_FORMAT_VERSION = 1;
+export const BACKUP_FORMAT_VERSION = 2;
 export { APP_VERSION };
 const MAX_ARCHIVE_BYTES = 128 * 1024 * 1024;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -28,6 +29,7 @@ export async function createBackup(db) {
   const settings=rows.find(r=>r.key==='notifications')?.value??{...DEFAULT_SETTINGS};
   const language=rows.find(r=>r.key==='language')?.value==='en'?'en':'ja';
   const appearance=normalizeAppearance(rows.find(r=>r.key==='appearance')?.value);
+  const categories=normalizeCategoryConfig(rows.find(r=>r.key==='categories')?.value);
   const referenced=new Set(people.filter(p=>p.hasImage).map(p=>p.id)),imageIds=new Set(images.map(i=>i.personId));
   if ([...referenced].some(id=>!imageIds.has(id))||[...imageIds].some(id=>!referenced.has(id))) {
     throw new Error('画像の参照不整合があります。バックアップ前に状態を確認してください。');
@@ -39,7 +41,7 @@ export async function createBackup(db) {
     files[path] = new Uint8Array(await image.blob.arrayBuffer());
     imageRecords.push({ personId: image.personId, path, type: image.type });
   }
-  files['data.json'] = strToU8(JSON.stringify({ people, notifications, settings, language, appearance, images: imageRecords }));
+  files['data.json'] = strToU8(JSON.stringify({ people, notifications, settings, language, appearance, categories, images: imageRecords }));
   if (Object.values(files).reduce((sum, bytes) => sum + bytes.length, 0) > MAX_ARCHIVE_BYTES - 1024 * 1024) {
     throw new Error('バックアップの容量が上限を超えています。画像を整理してから再試行してください。');
   }
@@ -50,7 +52,7 @@ export async function createBackup(db) {
   const manifest = {
     formatVersion: BACKUP_FORMAT_VERSION, appVersion: APP_VERSION,
     createdAt: new Date().toISOString(), counts: { people: people.length, images: images.length,
-      notifications: notifications.length }, entries,
+    notifications: notifications.length, categories:categoryDefinitions(categories).length }, entries,
   };
   files['manifest.json'] = strToU8(JSON.stringify(manifest, null, 2));
   const zipped = zipSync(files, { level: 0 });
@@ -61,7 +63,8 @@ export async function createBackup(db) {
 
 // v0は初期ローカル試作形式: birthday:{month,day} を anniversaries[]へ移す。
 export function migrateBackupData(version, data) {
-  if (version === 1) return data;
+  if (version === 2) return data;
+  if (version === 1) return {...data,categories:normalizeCategoryConfig()};
   if (version === 0) {
     return {
       ...data,
@@ -72,6 +75,7 @@ export function migrateBackupData(version, data) {
       })),
       settings: data.settings ?? { ...DEFAULT_SETTINGS },
       notifications: data.notifications ?? [], images: data.images ?? [],
+      categories:normalizeCategoryConfig(),
     };
   }
   throw new Error('このバックアップ形式には対応していません。');
@@ -82,12 +86,14 @@ function validateData(data, files) {
     || !Array.isArray(data.notifications) || !data.settings || typeof data.settings !== 'object'||Array.isArray(data.settings)) {
     throw new Error('バックアップのデータ構造が正しくありません。');
   }
+  const categories=normalizeCategoryConfig(data.categories);
   const people = data.people.map((record) => {
     if (!record||typeof record.id!=='string'||!UUID.test(record.id)) throw new Error('人物IDの形式が正しくありません。');
     return normalizePerson(record, record, record.updatedAt);
   });
   const personIds = new Set(people.map((person) => person.id));
   if (personIds.size !== people.length) throw new Error('人物IDが重複しています。');
+  if(people.some((person)=>!categoryExists(person.category,categories)))throw new Error('カテゴリと人物の参照が一致しません。');
   const images = data.images.map((record) => {
     if (!personIds.has(record.personId) || record.path !== `images/${record.personId}.bin`
       || !['image/jpeg', 'image/webp', 'image/png'].includes(record.type)
@@ -131,7 +137,8 @@ function validateData(data, files) {
   if (data.language != null && !['ja', 'en'].includes(data.language)) {
     throw new Error('バックアップの言語設定が正しくありません。');
   }
-  return { people, images, notifications, settings, language: data.language ?? 'ja', appearance:normalizeAppearance(data.appearance) };
+  return { people, images, notifications, settings, language: data.language ?? 'ja',
+    appearance:normalizeAppearance(data.appearance),categories };
 }
 
 // 書き込み前にZIP構造・各ハッシュ・参照整合性・形式Versionを全件確認します。
@@ -172,7 +179,8 @@ export async function inspectBackup(file) {
   const snapshot = validateData(migrateBackupData(manifest.formatVersion, rawData), files);
   for(const image of snapshot.images)await validateBackupImage(image.blob);
   if (manifest.counts?.people !== snapshot.people.length || manifest.counts?.images !== snapshot.images.length
-    ||manifest.counts.notifications!=null&&manifest.counts.notifications!==snapshot.notifications.length) {
+    ||manifest.counts.notifications!=null&&manifest.counts.notifications!==snapshot.notifications.length
+    ||manifest.formatVersion>=2&&manifest.counts.categories!==categoryDefinitions(snapshot.categories).length) {
     throw new Error('manifestの件数がデータと一致しません。');
   }
   return { manifest, snapshot, summary: {

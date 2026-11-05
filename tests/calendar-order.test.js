@@ -48,9 +48,9 @@ test('編集で順序を保持し日付変更では古い順序を持ち越さ�
   updated=await savePerson(db,{...updated,anniversaries:updated.anniversaries.map((ann,i)=>i?ann:{...ann,day:11})});
   assert.equal(updated.anniversaries[0].calendarOrder,undefined);db.close();
 });
-test('ZIP v1で順序を完全復元し旧ZIP相当の順序なし人物も受け入れる',async()=>{
+test('ZIP v2で順序を完全復元し旧ZIP相当の順序なし人物も受け入れる',async()=>{
   const {db,a}=await fixture(),ids=entries(await all(db,'people')).map(entryId).reverse();await reorderDayEvents(db,date,ids);
-  const backup=await inspectBackup(await createBackup(db));assert.equal(backup.manifest.formatVersion,1);
+  const backup=await inspectBackup(await createBackup(db));assert.equal(backup.manifest.formatVersion,2);
   await deletePerson(db,a.id);await restoreBackup(db,backup);assert.deepEqual(entries(await all(db,'people')).map(entryId),ids);
   for(const p of backup.snapshot.people)for(const ann of p.anniversaries)delete ann.calendarOrder;
   await restoreBackup(db,backup);assert.equal((await all(db,'people')).length,2);db.close();

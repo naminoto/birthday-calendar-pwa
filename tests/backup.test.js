@@ -27,7 +27,7 @@ test('ZIPへ画像と人物を保存し、変更後の復元で元の内容へ�
   const saved = await savePerson(db, fixture, { image: imageFixture() });
   const backup = await createBackup(db); const prepared = await inspectBackup(backup);
   assert.equal(prepared.summary.people, 1); assert.equal(prepared.summary.images, 1);
-  assert.equal(prepared.manifest.formatVersion, 1);
+  assert.equal(prepared.manifest.formatVersion, 2);
   await savePerson(db, { ...saved, displayName: '変更後' });
   assert.equal((await get(db, 'people', saved.id)).displayName, '変更後');
   await restoreBackup(db, prepared);
@@ -101,7 +101,7 @@ test('新ZIPは言語を保持し、旧v1 ZIPに言語がなくても日本語�
   db.close();
 });
 
-test('新ZIP v1は複数の記念日・通知・画像を完全復元する', async () => {
+test('新ZIP v2は複数の記念日・通知・画像を完全復元する', async () => {
   const db = await fresh();
   const person = await savePerson(db, { ...fixture, anniversaries:[...fixture.anniversaries,
     { type:'CUSTOM', title:'出会った日', month:5, day:10, year:2024,
@@ -111,7 +111,7 @@ test('新ZIP v1は複数の記念日・通知・画像を完全復元する', as
   const { synchronizeNotifications } = await import('../src/notifications.js');
   await synchronizeNotifications(db, '2027-05-03');
   const prepared = await inspectBackup(await createBackup(db));
-  assert.equal(prepared.manifest.formatVersion, 1);
+  assert.equal(prepared.manifest.formatVersion, 2);
   assert.equal(prepared.snapshot.people[0].anniversaries.length, 3);
   assert.equal(prepared.snapshot.notifications.length, 1);
   await savePerson(db, { ...person, anniversaries:fixture.anniversaries });
@@ -168,7 +168,7 @@ test('端末移行は移行元の追加・編集・削除を含む全状態で�
   const { synchronizeNotifications } = await import('../src/notifications.js');
   await synchronizeNotifications(source, '2027-05-07');
   const prepared = await inspectBackup(await createBackup(source));
-  assert.equal(prepared.manifest.formatVersion, 1);
+  assert.equal(prepared.manifest.formatVersion, 2);
   assert.equal(prepared.summary.people, 1);
   await restoreBackup(destination, prepared);
   const people = await all(destination, 'people');

@@ -11,7 +11,7 @@ class Element {
   addEventListener(key,fn){this.listeners[key]=fn;}
 }
 function fixture(){
-  const view=new Element(),cards=Array.from({length:4},()=>new Element());
+  const view=new Element(),cards=Array.from({length:5},()=>new Element());
   view.querySelectorAll=()=>cards;view.querySelector=()=>new Element();
   const doc={documentElement:{},getElementById:()=>view,createElement:tag=>new Element(tag)};
   doc.querySelectorAll=selector=>{if(selector==='[data-tab]')return Array.from({length:5},()=>new Element());if(selector==='#person-form .section-heading h3')return [new Element(),new Element()];const nodes=[];function walk(n){if(selector==='[data-section-key]'&&n.dataset.sectionKey||selector==='[data-guidance-key]'&&n.dataset.guidanceKey)nodes.push(n);n.children.forEach(walk);}walk(view);return nodes;};
@@ -20,7 +20,7 @@ function fixture(){
 }
 test('guidance uses the existing accessible disclosure without forms, links or HTML injection',()=>{
   const old=globalThis.document,{view,doc}=fixture();globalThis.document=doc;
-  try{setupSettingsSections(key=>key);assert.equal(view.children.length,6);
+  try{setupSettingsSections(key=>key);assert.equal(view.children.length,7);
     const section=view.children.find(n=>n.id==='data-privacy-section');assert.ok(section);
     assert.equal(section.children[0].tagName,'summary');assert.equal(section.children[0].attributes['aria-expanded'],'false');
     section.open=true;section.listeners.toggle();assert.equal(section.children[0].attributes['aria-expanded'],'true');
@@ -43,8 +43,8 @@ test('guidance is display-only: no persistence, external requests or contact wid
   assert.doesNotMatch(code,/innerHTML|fetch\(|XMLHttpRequest|indexedDB|localStorage|https:\/\/|mailto:/);
   const css=readFileSync(new URL('../src/yoribi.css',import.meta.url),'utf8');assert.match(css,/\.data-privacy-guide\s*\{[^}]*overflow-wrap:anywhere/);
 });
-test('the release candidate uses v1.4.3 while retaining database v3 and backup format v1',()=>{
-  const pkg=JSON.parse(readFileSync(new URL('../package.json',import.meta.url)));assert.equal(pkg.version,'1.4.3');
+test('v1.5.0 keeps database v3 while using backup format v2',()=>{
+  const pkg=JSON.parse(readFileSync(new URL('../package.json',import.meta.url)));assert.equal(pkg.version,'1.5.0');
   const db=readFileSync(new URL('../src/db.js',import.meta.url),'utf8');assert.match(db,/DB_VERSION\s*=\s*3/);
-  const backup=readFileSync(new URL('../src/backup.js',import.meta.url),'utf8');assert.match(backup,/FORMAT_VERSION\s*=\s*1/);
+  const backup=readFileSync(new URL('../src/backup.js',import.meta.url),'utf8');assert.match(backup,/FORMAT_VERSION\s*=\s*2/);
 });

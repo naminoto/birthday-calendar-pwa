@@ -1,5 +1,13 @@
 // browser-smokeの一時プロファイルだけで、日付→一覧→既存フォームを操作する。
 export async function verifyCalendarRegistration({ evaluate, until, check }) {
+  const setCategories=async(ids='ALL')=>{
+    await evaluate(`document.querySelector(${JSON.stringify(ids==='ALL'?'#calendar-categories-all':'#calendar-categories-none')}).click()`);
+    await until(()=>evaluate(ids==='ALL'
+      ? '[...document.querySelectorAll("#calendar-category-options input")].every(node=>node.checked)'
+      : '[...document.querySelectorAll("#calendar-category-options input")].every(node=>!node.checked)'), '登録検証カテゴリ初期化');
+    if(ids!=='ALL')for(const id of ids){await evaluate(`document.querySelector('#calendar-category-options input[data-category-id=${JSON.stringify(id)}]').click()`);
+      await until(()=>evaluate(`document.querySelector('#calendar-category-options input[data-category-id=${JSON.stringify(id)}]')?.checked===true`),'登録検証カテゴリ選択');}
+  };
   const people = () => evaluate(`new Promise((done,fail)=>{const r=indexedDB.open('birthday-circle-local');
     r.onsuccess=()=>{const db=r.result,q=db.transaction('people').objectStore('people').getAll();
       q.onsuccess=()=>{db.close();done(q.result);};q.onerror=()=>{db.close();fail(q.error);};};r.onerror=()=>fail(r.error);})`);
@@ -37,11 +45,11 @@ export async function verifyCalendarRegistration({ evaluate, until, check }) {
     check(await evaluate('document.querySelector("#person-birth-month").value === "" && document.querySelector("#person-birth-day").value === "" && document.querySelector("#person-birth-year").value === ""'), '通常追加に前回の日付が残っています。');
     await closeForm();
   }
-  await evaluate(`(()=>{window.__openCalendarDay(2028,1,1);document.querySelector('#detail-dialog [data-close]').click();
-    document.querySelector('#calendar-category').value='PET';document.querySelector('#calendar-category').dispatchEvent(new Event('change'));
+  await evaluate(`(()=>{window.__openCalendarDay(2028,1,1);document.querySelector('#detail-dialog [data-close]').click();})()`);await setCategories(['PET']);
+  await evaluate(`(()=>{
     document.querySelector('#calendar-event-type').value='ANNIVERSARY';document.querySelector('#calendar-event-type').dispatchEvent(new Event('change'));
     window.__openCalendarDay(2028,1,1);document.querySelector('#day-add').click();
-    document.querySelector('#person-name').value='日付導線テスト';document.querySelector('#person-birth-month').value='2';
+    document.querySelector('#person-name').value='日付導線テスト';document.querySelector('#person-category').value='PET';document.querySelector('#person-birth-month').value='2';
     document.querySelector('#person-birth-day').value='30';document.querySelector('#person-form').requestSubmit();})()`);
   await until(() => evaluate('!document.querySelector("#person-error").hidden'), '不正日付の検証');
   check((await people()).length === 0 && await evaluate('document.querySelector("#person-dialog").open && document.querySelector("#person-name").value === "日付導線テスト" && document.querySelector("#person-birth-day").value === "30"'), '保存失敗時に入力またはデータが失われました。');
@@ -56,7 +64,8 @@ export async function verifyCalendarRegistration({ evaluate, until, check }) {
   const created = (await people())[0];
   check(created.anniversaries[0].year === null && created.anniversaries[0].month === 2
     && created.anniversaries[0].day === 29 && !created.hasImage, '生年または変更後の誕生日が不正です。');
-  check(await evaluate('document.querySelector("#calendar-category").value === "ALL" && document.querySelector("#calendar-event-type").value === "ALL" && document.querySelector(".calendar-event .avatar").textContent === "日" && location.hash === "#calendar"'), '登録後に人物がカレンダーへ表示されません。');
+  check(await evaluate('document.querySelector("#calendar-category-options input[data-category-id=PET]").checked && [...document.querySelectorAll("#calendar-category-options input:not([data-category-id=PET])")].every(node=>!node.checked) && document.querySelector("#calendar-event-type").value === "ALL" && document.querySelector(".calendar-event .avatar").textContent === "日" && location.hash === "#calendar"'), '登録後に人物がカレンダーへ表示されません。');
+  await setCategories('ALL');
   await evaluate(`(()=>{document.querySelector('.calendar-event').click();document.querySelector('#detail-body .day-event-row').click();document.querySelector('#detail-edit').click();
     document.querySelector('#person-birth-month').value='12';document.querySelector('#person-birth-month').dispatchEvent(new Event('change'));document.querySelector('#person-birth-day').value='31';
     document.querySelector('#person-form').requestSubmit();})()`);

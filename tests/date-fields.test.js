@@ -26,12 +26,12 @@ test('不正な年・実在しない日付を拒否し、記念日の従来の�
   const make=(month,day,year)=>normalizePerson({displayName:'日付',anniversaries:[{type:'CUSTOM',title:'記念日',month,day,year}]});
   assert.throws(()=>make(2,30));assert.throws(()=>make(4,31));assert.throws(()=>make(2,29,2027));assert.doesNotThrow(()=>make(2,29));assert.doesNotThrow(()=>make(2,29,2024));assert.throws(()=>make(5,10,1500));
 });
-test('拡張した誕生年をDB v3とZIP v1で保存・再編集・完全復元する',async()=>{
+test('拡張した誕生年をDB v3とZIP v2で保存・再編集・完全復元する',async()=>{
   const db=await openDatabase('year-fields-'+crypto.randomUUID());
   assert.equal(db.version,DB_VERSION);assert.equal(DB_VERSION,3);
   for(const year of [1500,2099,null]){
     const saved=await savePerson(db,person(year));assert.equal(birthdayOf(await get(db,'people',saved.id)).year,year);
-    const zip=await inspectBackup(await createBackup(db));assert.equal(zip.manifest.formatVersion,BACKUP_FORMAT_VERSION);assert.equal(BACKUP_FORMAT_VERSION,1);
+    const zip=await inspectBackup(await createBackup(db));assert.equal(zip.manifest.formatVersion,BACKUP_FORMAT_VERSION);assert.equal(BACKUP_FORMAT_VERSION,2);
     await savePerson(db,{...saved,anniversaries:[{...saved.anniversaries[0],year:1998}]});await restoreBackup(db,zip);
     assert.equal(birthdayOf(await get(db,'people',saved.id)).year,year);
   }db.close();

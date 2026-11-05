@@ -6,12 +6,12 @@ test('正式版はpackage Version、独立テスト版だけは限定metaの候�
   const original=globalThis.document;
   try{
     delete globalThis.document;
-    assert.equal((await import('../src/version.js?production')).APP_VERSION,'1.4.3');
+    assert.equal((await import('../src/version.js?production')).APP_VERSION,'1.5.0');
     globalThis.document={querySelector:selector=>selector==='meta[name="yoribi-preview-version"]'
-      ?{content:'1.4.3-candidate'}:null};
-    assert.equal((await import('../src/version.js?candidate')).APP_VERSION,'1.4.3-candidate');
-    globalThis.document={querySelector:()=>({content:'1.4.3'})};
-    assert.equal((await import('../src/version.js?invalid')).APP_VERSION,'1.4.3');
+      ?{content:'1.5.0-candidate'}:null};
+    assert.equal((await import('../src/version.js?candidate')).APP_VERSION,'1.5.0-candidate');
+    globalThis.document={querySelector:()=>({content:'1.5.0'})};
+    assert.equal((await import('../src/version.js?invalid')).APP_VERSION,'1.5.0');
   }finally{if(original===undefined)delete globalThis.document;else globalThis.document=original;}
 });
 

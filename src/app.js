@@ -6,8 +6,10 @@ import './fonts.css';
 import './date-fields.css';
 import {setupMonthDay,setupBirthYear} from './date-fields.js';
 import { openDatabase, all, get, savePerson, deletePerson, deletePeople, loadSettings, saveSettings,
-  markNotificationRead, markAllRead, storageSummary, loadLanguage, saveLanguage } from './db.js';
-import { CATEGORIES, birthdayOf, birthdayRows, anniversaryYears,
+  markNotificationRead, markAllRead, storageSummary, loadLanguage, saveLanguage,ensureCategoryConfig,
+  createCustomCategory,renameCategory,updateCategoryColor,updateCategoryVisibility,
+  updateAllCategoryVisibility,deleteCustomCategory } from './db.js';
+import { birthdayOf, birthdayRows, anniversaryYears,
   occurrenceForYear, calendarEvents, filterPeople, tokyoToday } from './model.js';
 import { synchronizeNotifications } from './notifications.js';
 import { setupAvatarEditor } from './avatar-editor.js';
@@ -17,7 +19,7 @@ import {askBackupPassword} from './password-dialog.js';
 import {isRetired,startDataSession,eraseManagedData,RETIRED_KEY} from './data-lifecycle.js';
 import {setupExitUI,refreshExitGuide,showStopped} from './exit-ui.js';
 import { clearOldShellCaches, cacheBytes } from './cache-ops.js';
-import { t, setLanguage, currentLanguage, applyStaticTranslations, categoryLabel,
+import { t, setLanguage, currentLanguage, applyStaticTranslations,
   anniversaryLabel, monthLabel, dayLabel, errorText } from './i18n.js';
 import { setupUpdates } from './update.js';
 import { APP_VERSION } from './version.js';
@@ -32,10 +34,11 @@ import { reorderDayEvents } from './db.js';
 import { entryId } from './calendar-order.js';
 import { homeOverview } from './home.js';
 import {RAIL_SORTS,sortedRailPeople} from './rail-management.js';
+import {categoryDefinitions,categoryName as categoryDisplayName,categoryColor,visibleCategoryIds} from './categories.js';
 
 const $ = (id) => document.getElementById(id);
 let avatarEditor, updates, gestures, personMenu, railMenu, birthDateFields, birthYearFields, iosStorageGuide, pendingMove = null, moveSaving = false;
-let calendarDialogOrigin=null;
+let calendarDialogOrigin=null,pendingCategoryDelete=null;
 let restoreBusy=false;
 let exportBusy=false;
 let deletionBusy=false;
@@ -43,7 +46,7 @@ let dataSession;
 const compactCalendar = window.matchMedia('(max-width:520px)');
 const systemTheme = window.matchMedia('(prefers-color-scheme: dark)');
 let appearance = { ...DEFAULT_APPEARANCE };
-const state = { db: null, people: [], images: new Map(), notices: [], settings: null,
+const state = { db: null, people: [], images: new Map(), notices: [], settings: null,categoryConfig:null,
   today: tokyoToday(), month: null, selectedPersonId: null, detailPersonId: null, detailDay:null, formCalendarDate:null,
   railFilter: 'all', transferRoute: 'phone-pc', preparedBackup: null, selectionEvent:null,
   railSort:'nameAsc',railSortOpen:false,railBulk:false,railSelected:new Set(),railDeleting:false };
@@ -71,15 +74,19 @@ function birthdayText(person) { const b = birthdayOf(person); return b ? t('date
 function formatDays(days) { return days === 0 ? t('daysToday') : days === 1 ? t('daysTomorrow') : t('daysUntil', { days }); }
 function byId(id) { return state.people.find((person) => person.id === id); }
 function eventTitle(ann) { return ann.title || anniversaryLabel(ann.type); }
+function categories(){return categoryDefinitions(state.categoryConfig??{},currentLanguage());}
+function categoryLabel(id){return categoryDisplayName(id,state.categoryConfig??{},currentLanguage());}
+function categoryAccent(id){return categoryColor(id,state.categoryConfig??{});}
 function anniversaryText(ann, date) { const years = anniversaryYears(ann, date);
   return `${eventTitle(ann)}${years ? ` · ${t('anniversaryYears', { years })}` : ''}`; }
 
 async function refresh() {
   if(state.ending)return;
   gestures?.cancel();
-  const [people, images] = await Promise.all([all(state.db, 'people'), all(state.db, 'images')]);
+  const [people, images,categoryConfig] = await Promise.all([all(state.db, 'people'), all(state.db, 'images'),ensureCategoryConfig(state.db)]);
   const previousImages = state.images;
   state.people = people;
+  state.categoryConfig=categoryConfig;renderCategoryControls();
   state.images = new Map(images.map((image) => [image.personId, URL.createObjectURL(image.blob)]));
   const notifications = await synchronizeNotifications(state.db, state.today);
   state.notices = notifications.notifications; state.settings = notifications.settings;
@@ -169,7 +176,7 @@ function renderCalendar() {
   const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
   // 人物を月ごとに一度だけ集計し、31日×人数の繰り返し走査を避ける。
   const byDay = calendarEvents(state.people, year, month,
-    $('calendar-category').value, $('calendar-event-type').value);
+    visibleCategoryIds(state.categoryConfig), $('calendar-event-type').value);
   for (let day = 1; day <= last; day++) {
     const date = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     const events = byDay.get(date) ?? [];
@@ -185,6 +192,7 @@ function renderCalendar() {
     for (const entry of events.slice(0, visibleLimit)) {
       const birthday = entry.ann.type === 'BIRTHDAY';
       const item = el('button', `calendar-event ${birthday ? 'birthday-event' : 'anniversary-event'}`);
+      item.style.setProperty('--category-color',categoryAccent(entry.person.category));
       item.type = 'button'; item.dataset.personId = entry.person.id;
       item.dataset.eventKey = eventKey(entry.ann); item.draggable = false;
       const label = t('calendarEventList', { name:entry.person.displayName,
@@ -303,7 +311,7 @@ function openDayPeople(events, month, day) {
 function reopenDay() {
   const date=state.detailDay;if(!date)return;
   const key=`${date.year}-${String(date.month).padStart(2,'0')}-${String(date.day).padStart(2,'0')}`;
-  const events=calendarEvents(state.people,date.year,date.month,$('calendar-category').value,$('calendar-event-type').value).get(key)??[];
+  const events=calendarEvents(state.people,date.year,date.month,visibleCategoryIds(state.categoryConfig),$('calendar-event-type').value).get(key)??[];
   openDayPeople(events,date.month,date.day);
 }
 async function saveDayOrder(date,ids) {
@@ -536,7 +544,7 @@ async function submitPerson(event) {
     const calendarDate = state.formCalendarDate, birthday = birthdayOf(saved);
     if (calendarDate) {
       state.month = new Date(Date.UTC(calendarDate.year, (birthday?.month ?? calendarDate.month) - 1, 1));
-      if ($('calendar-category').value !== 'ALL' && $('calendar-category').value !== saved.category) $('calendar-category').value = 'ALL';
+      if(state.categoryConfig.hiddenCategoryIds.includes(saved.category))state.categoryConfig=await updateCategoryVisibility(state.db,saved.category,false);
       if ($('calendar-event-type').value === 'ANNIVERSARY') $('calendar-event-type').value = 'ALL';
     }
     state.formCalendarDate = null;
@@ -588,6 +596,84 @@ function renderTransferGuide() {
   for (const button of document.querySelectorAll('[data-transfer-route]'))
     button.setAttribute('aria-pressed', String(button.dataset.transferRoute === state.transferRoute));
 }
+
+function renderCategoryControls() {
+  if(!state.categoryConfig)return;
+  const definitions=categories(),known=new Set(definitions.map((entry)=>entry.id));
+  for(const [id,allowAll] of [['people-category',true],['birthday-category',true],['person-category',false]]){
+    const select=$(id),previous=select.value;
+    const options=definitions.map((entry)=>{const option=el('option','',entry.name);option.value=entry.id;return option;});
+    if(allowAll){const all=el('option','',t('all'));all.value='ALL';options.unshift(all);}
+    select.replaceChildren(...options);
+    select.value=known.has(previous)||allowAll&&previous==='ALL'?previous:(allowAll?'ALL':'OTHER');
+  }
+  const hidden=new Set(state.categoryConfig.hiddenCategoryIds),host=$('calendar-category-options');
+  host.replaceChildren(...definitions.map((entry)=>{
+    const label=el('label'),check=el('input'),dot=el('span','category-dot'),name=el('span','',entry.name);
+    check.type='checkbox';check.checked=!hidden.has(entry.id);check.dataset.categoryId=entry.id;
+    dot.style.setProperty('--category-color',entry.color);
+    check.onchange=async()=>{try{state.categoryConfig=await updateCategoryVisibility(state.db,entry.id,!check.checked);renderCategoryControls();renderCalendar();}
+      catch(error){check.checked=!check.checked;toast(errorText(error));}};
+    label.append(check,dot,name);return label;
+  }));
+  $('calendar-category-summary').textContent=t('calendarCategoriesSummary',{
+    visible:definitions.length-hidden.size,total:definitions.length});
+  renderCategoryManager();
+}
+
+// 設定画面と人物フォーム内ダイアログで、同じDB更新・検証・再描画経路を使う。
+async function createCategory(name,color){
+  const before=new Set(state.categoryConfig.custom.map((entry)=>entry.id));
+  const next=await createCustomCategory(state.db,name,color);
+  const created=next.custom.find((entry)=>!before.has(entry.id));
+  if(!created)throw new Error('保存を完了できませんでした。');
+  state.categoryConfig=next;renderCategoryControls();
+  return created;
+}
+
+function openPersonCategoryCreateDialog(){
+  const dialog=$('person-category-create-dialog'),form=$('person-category-create-form');
+  form.reset();$('person-category-create-color').value='#64748b';$('person-category-create-error').hidden=true;
+  dialog.showModal();$('person-category-create-name').focus({preventScroll:true});
+}
+
+function renderCategoryManager(){
+  if(!state.categoryConfig)return;
+  const counts=new Map();for(const person of state.people)counts.set(person.category,(counts.get(person.category)??0)+1);
+  $('category-list').replaceChildren(...categories().map((entry)=>{
+    const row=el('div','category-row'),main=el('div','category-row-main'),dot=el('span','category-dot');
+    dot.style.setProperty('--category-color',entry.color);
+    const name=el('span','category-row-name',entry.name),meta=el('span','category-row-meta',
+      `${t(entry.fixed?'categoryFixed':'categoryCustom')} · ${t('categoryPeopleCount',{count:counts.get(entry.id)??0})}`);
+    main.append(dot,name,meta);
+    const controls=el('div','category-row-controls'),color=el('input');color.type='color';color.value=entry.color;
+    color.setAttribute('aria-label',`${entry.name} ${t('categoryColor')}`);
+    color.onchange=async()=>{try{state.categoryConfig=await updateCategoryColor(state.db,entry.id,color.value);renderCategoryControls();renderCalendar();toast(t('categoryColorSaved'));}
+      catch(error){color.value=entry.color;toast(errorText(error));}};
+    controls.append(color);
+    if(!entry.fixed){
+      const input=el('input');input.type='text';input.maxLength=40;input.value=entry.name;input.setAttribute('aria-label',t('categoryName'));
+      const rename=el('button','quiet',t('categoryRename'));rename.type='button';rename.onclick=async()=>{
+        try{state.categoryConfig=await renameCategory(state.db,entry.id,input.value);renderCategoryControls();renderPeople();renderBirthdays();renderCalendar();toast(t('categoryRenamed'));}
+        catch(error){toast(errorText(error));}};
+      const remove=el('button','danger-link',t('categoryDelete'));remove.type='button';remove.onclick=()=>openCategoryDeleteDialog(entry.id);
+      controls.prepend(input,rename);controls.append(remove);
+    }
+    row.append(main,controls);return row;
+  }));
+}
+
+function openCategoryDeleteDialog(id){
+  const entry=categories().find((item)=>item.id===id);if(!entry||entry.fixed)return;
+  const count=state.people.filter((person)=>person.category===id).length;pendingCategoryDelete={id,count,name:entry.name};
+  $('category-delete-description').textContent=t(count?'categoryDeleteUsed':'categoryDeleteEmpty',{name:entry.name,count});
+  const target=$('category-move-target');target.replaceChildren(...categories().filter((item)=>item.id!==id).map((item)=>{
+    const option=el('option','',item.name);option.value=item.id;return option;}));
+  $('category-move-wrap').hidden=count===0;$('category-delete-error').hidden=true;
+  $('category-delete-confirm').textContent=t(count?'categoryDeleteConfirm':'categoryDelete');
+  $('category-delete-dialog').showModal();
+}
+
 function renderSettings() {
   $('theme-choice').value = appearance.theme;
   const form = $('notification-settings');
@@ -668,11 +754,6 @@ async function previewRestore(file) {
 }
 
 function initOptions() {
-  for (const key of Object.keys(CATEGORIES)) {
-    for (const id of ['people-category', 'birthday-category', 'person-category', 'calendar-category']) {
-      const option = el('option', '', categoryLabel(key)); option.value = key; $(id).append(option);
-    }
-  }
   for (let month = 1; month <= 12; month++) {
     for (const id of ['people-month', 'birthday-month', 'person-birth-month']) {
       const option = el('option', '', monthLabel(month)); option.value = month; $(id).append(option);
@@ -725,13 +806,13 @@ function bindEvents() {
     try {
       await saveLanguage(state.db, event.target.value);
       setLanguage(event.target.value); applyStaticTranslations();refreshExitGuide(t); avatarEditor.refreshLanguage();iosStorageGuide.refreshLanguage();
-      birthDateFields.refresh();birthYearFields.refresh();
+      birthDateFields.refresh();birthYearFields.refresh();renderCategoryControls();
       renderHome(); renderCalendar(); renderPeople(); renderBirthdays(); renderNotifications(); renderSettings();
       if ($('detail-dialog').open && state.detailPersonId) openDetail(state.detailPersonId);
       else if ($('detail-dialog').open && state.detailDay) {
         const { year, month, day } = state.detailDay;
         const date = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-        openDayPeople(calendarEvents(state.people, year, month, $('calendar-category').value, $('calendar-event-type').value).get(date) ?? [], month, day);
+        openDayPeople(calendarEvents(state.people, year, month,visibleCategoryIds(state.categoryConfig), $('calendar-event-type').value).get(date) ?? [], month, day);
       }
       state.preparedBackup = null; $('restore-preview').hidden = true;
       updates?.refreshLanguage();
@@ -748,6 +829,20 @@ function bindEvents() {
   });
   for (const id of ['calendar-add', 'people-add']) $(id).onclick = () => openForm();
   $('person-form').addEventListener('submit', submitPerson);
+  $('person-category-create').onclick=openPersonCategoryCreateDialog;
+  $('person-category-create-cancel').onclick=()=>$('person-category-create-dialog').close();
+  $('person-category-create-form').onsubmit=async(event)=>{
+    event.preventDefault();const error=$('person-category-create-error'),confirm=$('person-category-create-confirm');
+    error.hidden=true;confirm.disabled=true;
+    try{const created=await createCategory($('person-category-create-name').value,$('person-category-create-color').value);
+      $('person-category').value=created.id;$('person-category-create-dialog').close();toast(t('categoryCreatedSelected'));}
+    catch(reason){error.textContent=errorText(reason);error.hidden=false;}
+    finally{confirm.disabled=false;}
+  };
+  $('person-category-create-dialog').addEventListener('close',()=>{
+    $('person-category-create-form').reset();$('person-category-create-color').value='#64748b';$('person-category-create-error').hidden=true;
+    if($('person-dialog').open)$('person-category-create').focus({preventScroll:true});
+  });
   $('person-dialog').addEventListener('close', () => {
     if ($('person-dialog').open || !state.formCalendarDate) return;
     const { year, month, day } = state.formCalendarDate; state.formCalendarDate = null;
@@ -789,7 +884,8 @@ function bindEvents() {
     state.railFilter = button.dataset.railFilter;
     for (const peer of document.querySelectorAll('[data-rail-filter]')) peer.classList.toggle('active', peer === button);
     renderCalendar(); };
-  $('calendar-category').onchange = renderCalendar;
+  $('calendar-categories-all').onclick=async()=>{try{state.categoryConfig=await updateAllCategoryVisibility(state.db,true);renderCategoryControls();renderCalendar();}catch(error){toast(errorText(error));}};
+  $('calendar-categories-none').onclick=async()=>{try{state.categoryConfig=await updateAllCategoryVisibility(state.db,false);renderCategoryControls();renderCalendar();}catch(error){toast(errorText(error));}};
   $('calendar-event-type').onchange = renderCalendar;
   for (const id of ['people-search', 'people-category', 'people-month', 'people-birthday', 'people-sort'])
     $(id).addEventListener('input', renderPeople);
@@ -799,6 +895,19 @@ function bindEvents() {
   $('notification-settings').onsubmit = async (event) => { event.preventDefault(); const fields = event.currentTarget.elements;
     await saveSettings(state.db, Object.fromEntries(['enabled', 'seven', 'three', 'one', 'today']
       .map((key) => [key, fields[key].checked]))); await refresh(); toast(t('settingsSaved')); };
+  $('category-add-form').onsubmit=async(event)=>{event.preventDefault();$('category-error').hidden=true;
+    try{await createCategory($('category-new-name').value,$('category-new-color').value);
+      $('category-new-name').value='';toast(t('categoryAdded'));}
+    catch(error){$('category-error').textContent=errorText(error);$('category-error').hidden=false;}};
+  $('category-delete-cancel').onclick=()=>$('category-delete-dialog').close();
+  $('category-delete-dialog').addEventListener('close',()=>{pendingCategoryDelete=null;});
+  $('category-delete-confirm').onclick=async()=>{const pending=pendingCategoryDelete;if(!pending)return;
+    $('category-delete-error').hidden=true;$('category-delete-confirm').disabled=true;
+    try{const replacement=pending.count?$('category-move-target').value:null;
+      const result=await deleteCustomCategory(state.db,pending.id,replacement);state.categoryConfig=result.config;
+      $('category-delete-dialog').close();await refresh();toast(t(result.moved?'categoryDeleted':'categoryDeleteUnused',{count:result.moved}));}
+    catch(error){$('category-delete-error').textContent=errorText(error);$('category-delete-error').hidden=false;}
+    finally{$('category-delete-confirm').disabled=false;}};
   $('import-backup').accept='.yoribi,.zip,application/octet-stream,application/zip';
   $('export-backup').onclick = exportBackup;
   $('transfer-export').onclick = exportBackup;

@@ -217,13 +217,17 @@ try {
     await command('Page.reload');
     await until(() => evaluate('document.documentElement.lang === "en" && document.querySelector("#person-rail .avatar-person") !== null'), 'Old data rendering timeout');
     const before = await evaluate(snapshotExpression);
-    // 旧アプリ自身の書き出し処理を使用。ダミー画像を含む本物の旧ZIPを新UIで検証する。
+    // 旧アプリ自身の書き出し処理を使用。v1.4.2以前のZIPと
+    // v1.4.3以降の暗号化.yoribiのどちらでも、新UIで実物を検証する。
     await evaluate(`(()=>{window.__oldExportURL=URL.createObjectURL;window.__oldExportClick=HTMLAnchorElement.prototype.click;
-      URL.createObjectURL=function(blob){if(blob.type==='application/zip')window.__oldExportBlob=blob;return window.__oldExportURL(blob);};
+      URL.createObjectURL=function(blob){if(['application/zip','application/octet-stream'].includes(blob.type))window.__oldExportBlob=blob;return window.__oldExportURL(blob);};
       HTMLAnchorElement.prototype.click=function(){};document.querySelector('[data-tab=settings]').click();document.querySelector('#export-backup').click();})()`);
-    await until(()=>evaluate('Boolean(window.__oldExportBlob)'), 'Old ZIP export failed');
-    const oldZIP=await evaluate(`(async()=>{const bytes=new Uint8Array(await window.__oldExportBlob.arrayBuffer());let text='';for(const byte of bytes)text+=String.fromCharCode(byte);
-      URL.createObjectURL=window.__oldExportURL;HTMLAnchorElement.prototype.click=window.__oldExportClick;return btoa(text);})()`);
+    if(await evaluate('Boolean(document.querySelector("#backup-password-dialog")?.open)')){
+      await evaluate(`(()=>{document.querySelector('#backup-password').value='release-upgrade-test-password';const confirm=document.querySelector('#backup-password-confirm');if(confirm)confirm.value='release-upgrade-test-password';document.querySelector('#backup-password-dialog form').requestSubmit();})()`);
+    }
+    await until(()=>evaluate('Boolean(window.__oldExportBlob)'), 'Old backup export failed');
+    const oldBackup=await evaluate(`(async()=>{const blob=window.__oldExportBlob,bytes=new Uint8Array(await blob.arrayBuffer());let text='';for(const byte of bytes)text+=String.fromCharCode(byte);
+      URL.createObjectURL=window.__oldExportURL;HTMLAnchorElement.prototype.click=window.__oldExportClick;return {base64:btoa(text),type:blob.type,encrypted:blob.type==='application/octet-stream'};})()`);
     servingRoot = currentRoot;
     await evaluate('(async()=>{await (await navigator.serviceWorker.getRegistration()).update();})()');
     await until(() => evaluate('!document.querySelector("#update-banner").hidden'), 'Old app update detection timeout');
@@ -240,15 +244,28 @@ try {
     catch(error) { throw new Error(JSON.stringify({message:error.message,expectedCache,errors,navigations,beforeNavigations,state:await evaluate(`(async()=>{const r=await navigator.serviceWorker.getRegistration();const info=await new Promise(done=>{const c=new MessageChannel();c.port1.onmessage=e=>done(e.data);navigator.serviceWorker.controller.postMessage({type:'CACHE_NAME'},[c.port2]);});return {title:document.title,brand:document.querySelector('.brand strong').textContent,info,waiting:r.waiting?.state,active:r.active?.state,disabled:document.querySelector('#update-app').disabled,hidden:document.querySelector('#update-banner').hidden,message:document.querySelector('#update-message').textContent};})()`)})); }
     await pause(500);
     const after = await evaluate(snapshotExpression);
-    check(JSON.stringify(before) === JSON.stringify(after), 'Data changed during version upgrade');
+    check(before.version===after.version&&JSON.stringify(before.records[0])===JSON.stringify(after.records[0])
+      &&JSON.stringify(before.records[1])===JSON.stringify(after.records[1])
+      &&JSON.stringify(before.records[3])===JSON.stringify(after.records[3]),'User data changed during version upgrade');
+    const beforeSettings=new Map(before.records[2].map(record=>[record.key,record]));
+    const afterSettings=new Map(after.records[2].map(record=>[record.key,record]));
+    check([...beforeSettings].every(([key,record])=>JSON.stringify(afterSettings.get(key))===JSON.stringify(record)),
+      'Existing settings changed during version upgrade');
+    const addedSettings=[...afterSettings.keys()].filter(key=>!beforeSettings.has(key));
+    check(addedSettings.length===1&&addedSettings[0]==='categories','Unexpected settings added during version upgrade');
     check(navigations - beforeNavigations === 1, 'Upgrade did not reload exactly once');
     check((await evaluate('window.__dataResetCalls')).length === 0, 'Upgrade called data clear/delete');
     await evaluate(`(()=>{document.querySelector('[data-tab=settings]').click();const input=document.querySelector('#import-backup'),transfer=new DataTransfer();
-      transfer.items.add(new File([Uint8Array.from(atob('${oldZIP}'),c=>c.charCodeAt(0))],'old-official.zip',{type:'application/zip'}));input.files=transfer.files;input.dispatchEvent(new Event('change'));})()`);
-    await until(()=>evaluate('!document.querySelector("#restore-preview").hidden'),'New version rejected actual old ZIP');
-    check(JSON.stringify(await evaluate(snapshotExpression))===JSON.stringify(after),'Old ZIP inspection changed data');
+      const backup=${JSON.stringify(oldBackup)};transfer.items.add(new File([Uint8Array.from(atob(backup.base64),c=>c.charCodeAt(0))],backup.encrypted?'old-official.yoribi':'old-official.zip',{type:backup.type}));input.files=transfer.files;input.dispatchEvent(new Event('change'));})()`);
+    if(oldBackup.encrypted){
+      await until(()=>evaluate('Boolean(document.querySelector("#backup-password-dialog")?.open)'),'Encrypted old backup password dialog');
+      await evaluate(`(()=>{document.querySelector('#backup-password').value='release-upgrade-test-password';document.querySelector('#backup-password-dialog form').requestSubmit();})()`);
+    }
+    await until(()=>evaluate('!document.querySelector("#restore-preview").hidden'),'New version rejected actual old backup');
+    check(JSON.stringify(await evaluate(snapshotExpression))===JSON.stringify(after),'Old backup inspection changed data');
     upgrade = { from:previousVersion, to:expectedAppVersion, databaseVersion:after.version, people:after.records[0].length,
-      images:after.records[1].length, notices:after.records[3].length, allDataUnchanged:true, reloads:1, dataResetCalls:0,oldZIPValidatedInNewUI:true };
+      images:after.records[1].length, notices:after.records[3].length, allExistingDataUnchanged:true,addedSettings,reloads:1,dataResetCalls:0,
+      oldBackupType:oldBackup.encrypted?'yoribi':'zip',oldBackupValidatedInNewUI:true };
   }
   const published = await evaluate(`(async()=>{document.querySelector('[data-tab=settings]').click();
     const urls=[...document.querySelectorAll('script[src],link[rel=stylesheet],link[rel=manifest],link[rel=apple-touch-icon]')].map(node=>node.src||node.href);
@@ -264,14 +281,16 @@ try {
       updateControls:!!document.querySelector('#settings-check-update'),transferGuide:!!document.querySelector('#transfer-title'),statuses};})()`);
   check(published.version === expectedAppVersion && published.worker === expectedAppVersion && published.workerSource === expectedAppVersion,
     `Version mismatch: ${JSON.stringify(published)}`);
+  const previewRelease=expectedAppVersion.replace('-candidate',''),previewLabel=`v${previewRelease}候補`;
   const preview=option('check-preview')==='true'?await evaluate(`(()=>{const banner=document.querySelector('#preview-candidate-banner');
     const versions=[...document.querySelectorAll('#release-history .release-entry')].map(node=>node.dataset.version);
     return {banner:banner?.textContent.trim(),meta:document.querySelector('meta[name="yoribi-preview-version"]')?.content,
-      title:document.title,officialHistoryHasCandidate:versions.includes('1.4.3'),
+      title:document.title,officialHistoryHasCurrent:versions.includes(${JSON.stringify(APP_VERSION)}),
+      officialHistoryHasUnreleasedCandidate:versions.includes(${JSON.stringify(previewRelease)})&&${JSON.stringify(previewRelease)}!==${JSON.stringify(APP_VERSION)},
       firstDate:document.querySelector('#release-history .release-entry time')?.dateTime,
       pending:document.querySelector('#release-history [data-release-key=releaseDatePending]')?.textContent.trim()};})()`):null;
-  if(preview)check(preview.banner?.includes('v1.4.3候補')&&preview.meta===expectedAppVersion
-    &&preview.title.includes('v1.4.3候補')&&preview.officialHistoryHasCandidate
+  if(preview)check(preview.banner?.includes(previewLabel)&&preview.meta===expectedAppVersion
+    &&preview.title.includes(previewLabel)&&preview.officialHistoryHasCurrent&&!preview.officialHistoryHasUnreleasedCandidate
     &&preview.firstDate==='2026-11-04'&&preview.pending===undefined,`Preview marker mismatch: ${JSON.stringify(preview)}`);
   check(published.updateControls && published.transferGuide && published.statuses.every((status) => status === 200), 'Published UI or assets missing');
   if (previousDist) {

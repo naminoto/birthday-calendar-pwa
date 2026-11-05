@@ -4,7 +4,7 @@ import {setupReleaseHistory} from './release-history-ui.js';
 export function setupSettingsSections(t) {
   const view = document.getElementById('view-settings');
   const cards = [...view.querySelectorAll('.setting-card')];
-  for (const [index, id] of ['language-settings','notice-settings','backup-settings','storage-settings'].entries()) cards[index].id = id;
+  for (const [index, id] of ['language-settings','notice-settings','category-settings','backup-settings','storage-settings'].entries()) cards[index].id = id;
   const section = (id, key, nodes) => {
     const details = document.createElement('details'); details.className = 'setting-section'; details.id = id;
     const summary = document.createElement('summary'), label = document.createElement('span');
@@ -32,9 +32,10 @@ export function setupSettingsSections(t) {
     }
   }
   view.append(section('appearance-section','appearanceTitle',[cards[0],appearance]),
-    section('notice-section','noticeTitle',[cards[1]]),section('backup-section','backupTitle',[cards[2]]),
+    section('notice-section','noticeTitle',[cards[1]]),section('category-section','categoryManageTitle',[cards[2]]),
+    section('backup-section','backupTitle',[cards[3]]),
     section('data-privacy-section','dataPrivacyTitle',[guidance]),
-    section('storage-section','storageTitle',[cards[3]]),section('info-section','appInfo',[info,privacy]));
+    section('storage-section','storageTitle',[cards[4]]),section('info-section','appInfo',[info,privacy]));
 }
 
 export function setupOutlineIcons() {

@@ -25,10 +25,10 @@ test('テーマは既存settings storeへ保存し人物・画像を変えず再
   assert.deepEqual(await loadAppearance(db),{theme:'dark'});assert.deepEqual(await all(db,'people'),before);
   assert.equal((await all(db,'images'))[0].personId,person.id);assert.equal(db.version,3);db.close();
 });
-test('ZIP v1でテーマを完全復元し、追加設定がない旧snapshotもライトへ戻る',async()=>{
+test('ZIP v2でテーマを完全復元し、追加設定がない旧snapshotもライトへ戻る',async()=>{
   const db=await openDatabase(`theme-zip-${crypto.randomUUID()}`);
   await saveAppearance(db,{theme:'system'});const archive=await createBackup(db),prepared=await inspectBackup(archive);
-  assert.equal(prepared.manifest.formatVersion,1);await saveAppearance(db,{theme:'dark'});await restoreBackup(db,prepared);
+  assert.equal(prepared.manifest.formatVersion,2);await saveAppearance(db,{theme:'dark'});await restoreBackup(db,prepared);
   assert.deepEqual(await loadAppearance(db),{theme:'system'});
   delete prepared.snapshot.appearance;await restoreBackup(db,prepared);assert.deepEqual(await loadAppearance(db),{theme:'light'});db.close();
 });

@@ -18,6 +18,8 @@ import {verifyBackupSecurity} from './backup-security-smoke.mjs';
 import {verifyPrivacyGuidance} from './privacy-guidance-smoke.mjs';
 import {enterBackupPassword} from './backup-password-smoke.mjs';
 import {verifyIOSStorageGuidance} from './ios-storage-smoke.mjs';
+import {verifyCategoryManagement} from './category-management-smoke.mjs';
+import {verifyPersonCategoryCreate} from './person-category-create-smoke.mjs';
 
 const prefix = '/birthday-circle/', root = resolve('dist');
 const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
@@ -52,6 +54,17 @@ async function evaluate(expression) { const response = await command('Runtime.ev
   if (response.exceptionDetails) throw new Error(response.exceptionDetails.text);
   return response.result.value; }
 function check(value, message) { if (!value) throw new Error(message); }
+async function setCalendarCategories(ids='ALL') {
+  await evaluate(`document.querySelector(${JSON.stringify(ids==='ALL'?'#calendar-categories-all':'#calendar-categories-none')}).click()`);
+  await until(()=>evaluate(ids==='ALL'
+    ? '[...document.querySelectorAll("#calendar-category-options input")].every(node=>node.checked)'
+    : '[...document.querySelectorAll("#calendar-category-options input")].every(node=>!node.checked)'), 'カテゴリ表示初期化');
+  if(ids==='ALL')return;
+  for(const id of ids){
+    await evaluate(`document.querySelector('#calendar-category-options input[data-category-id=${JSON.stringify(id)}]').click()`);
+    await until(()=>evaluate(`document.querySelector('#calendar-category-options input[data-category-id=${JSON.stringify(id)}]')?.checked===true`),'カテゴリ表示選択');
+  }
+}
 try {
   check(existsSync(edge), 'Microsoft Edgeが見つかりません。');
   child = spawn(edge, ['--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
@@ -134,7 +147,7 @@ try {
   })()`);
   check(releaseHistory.initiallyClosed && releaseHistory.versions[0]===APP_VERSION
     && releaseHistory.versions.includes('1.4.3') && releaseHistory.title==='更新履歴'
-    && releaseHistory.firstDate==='2026-11-04' && releaseHistory.pending===undefined
+    && releaseHistory.firstDate==='2026-11-05' && releaseHistory.pending===undefined
     && releaseHistory.category==='新機能' && releaseHistory.layouts.every(layout=>!layout.overflow),
     `日本語の更新履歴またはテーマ表示が不正です: ${JSON.stringify(releaseHistory)}`);
   await evaluate(`(()=>{document.querySelector('[data-tab=settings]').click();
@@ -149,7 +162,7 @@ try {
     form:document.querySelector('#person-form > label:nth-of-type(1)').textContent.trim(),
     crop:document.querySelector('#crop-title').textContent,
     version:document.querySelector('#app-version').textContent,
-    category:document.querySelector('#calendar-category option[value=PET]').textContent,
+    category:document.querySelector('#calendar-category-options input[data-category-id=PET]').parentElement.textContent.trim(),
     nav:[...document.querySelectorAll('[data-tab]')].map(node=>node.textContent.trim()),
     residual:[...document.querySelectorAll('body *')].filter(node=>node.children.length===0 && /[\u3040-\u30ff\u3400-\u9fff]/.test(node.textContent))
       .map(node=>[node.tagName,node.id||node.className,node.textContent.trim()]).slice(0,80),
@@ -162,7 +175,7 @@ try {
   }))()`);
   check(english.todayHeading === "Today's events" && english.calendar === 'Birthday & anniversary calendar'
     && english.backup === 'Backup & restore' && english.form.startsWith('Display name')
-    && english.crop === 'Adjust image' && english.version === APP_VERSION && english.category === 'Pet'
+    && english.crop === 'Adjust image' && english.version === APP_VERSION && english.category === 'Pets'
     && english.residualText.length === 0,
     `英語画面の翻訳が不足しています: ${JSON.stringify(english)}`);
   const updateEnglish = await evaluate(`({version:document.querySelector('#app-version-label').textContent,
@@ -175,7 +188,7 @@ try {
     pending:document.querySelector('#release-history [data-release-key=releaseDatePending]')?.textContent.trim(),
     first:document.querySelector('#release-history .release-entry li').textContent.trim()})`);
   check(releaseHistory.english.title==='Release history' && releaseHistory.english.category==='New features'
-    && releaseHistory.english.firstDate==='2026-11-04' && releaseHistory.english.pending===undefined
+    && releaseHistory.english.firstDate==='2026-11-05' && releaseHistory.english.pending===undefined
     && !/[\u3040-\u30ff\u3400-\u9fff]/.test(releaseHistory.english.first),
     `英語の更新履歴が不正です: ${JSON.stringify(releaseHistory.english)}`);
   await evaluate('document.querySelector("#settings-check-update").click()');
@@ -235,6 +248,8 @@ try {
   const privacyGuidance=await verifyPrivacyGuidance({evaluate,until,check,command});
   const calendarTaps=await verifyCalendarTaps({evaluate,until,check,command,sleep});
   const calendarRegistration = await verifyCalendarRegistration({ evaluate, until, check });
+  const personCategoryCreate=await verifyPersonCategoryCreate({evaluate,until,check,command});
+  const categoryManagement=await verifyCategoryManagement({evaluate,until,check,command});
   const yoribi = await verifyYoribiUI({evaluate,until,check,command,screenshot:async name=>{mkdirSync('test-artifacts',{recursive:true});writeFileSync(`test-artifacts/${name}.png`,Buffer.from((await command('Page.captureScreenshot',{format:'png'})).data,'base64'));}});
   const calendarInteractions = await verifyCalendarInteractions({ evaluate, until, check, command, sleep,
     screenshot:async name=>{mkdirSync('test-artifacts',{recursive:true});writeFileSync(`test-artifacts/${name}.png`,Buffer.from((await command('Page.captureScreenshot',{format:'png'})).data,'base64'));} });
@@ -517,18 +532,18 @@ try {
       row.querySelector('.ann-month').value='${persisted[0].birthday.month}';row.querySelector('.ann-day').value='15';}
     document.querySelector('#person-form').requestSubmit();})()`);
   await until(() => evaluate('document.querySelectorAll("#people-list .person-card").length === 2'), '同日2人の登録');
-  const calendarFilter = await evaluate(`(()=>{document.querySelector('[data-tab=calendar]').click();
-    const selector=document.querySelector('#calendar-category');
-    const count=()=>{const cell=[...document.querySelectorAll('.day-cell')].find(x=>x.querySelector('.day-number').textContent==='15');
-      return cell.querySelectorAll('.calendar-event').length+Number(cell.querySelector('.more')?.textContent.replace('+','')||0);};
-    const all=count();selector.value='PET';selector.dispatchEvent(new Event('change',{bubbles:true}));const pet=count();
-    selector.value='OTHER';selector.dispatchEvent(new Event('change',{bubbles:true}));const other=count();
-    const type=document.querySelector('#calendar-event-type');type.value='ANNIVERSARY';
-    type.dispatchEvent(new Event('change',{bubbles:true}));const otherAnn=count();
-    type.value='BIRTHDAY';type.dispatchEvent(new Event('change',{bubbles:true}));const otherBirthday=count();
-    type.value='ALL';type.dispatchEvent(new Event('change',{bubbles:true}));
-    selector.value='ALL';selector.dispatchEvent(new Event('change',{bubbles:true}));
-    return {all,pet,other,otherAnn,otherBirthday,reset:count(),scroll:document.documentElement.scrollWidth};})()`);
+  await evaluate(`document.querySelector('[data-tab=calendar]').click()`);
+  const countCalendar=()=>evaluate(`(()=>{const cell=[...document.querySelectorAll('.day-cell')].find(x=>x.querySelector('.day-number').textContent==='15');
+    return cell.querySelectorAll('.calendar-event').length+Number(cell.querySelector('.more')?.textContent.replace('+','')||0);})()`);
+  await setCalendarCategories('ALL');const all=await countCalendar();
+  await setCalendarCategories(['PET']);const pet=await countCalendar();
+  await setCalendarCategories(['OTHER']);const other=await countCalendar();
+  await evaluate(`document.querySelector('#calendar-event-type').value='ANNIVERSARY';document.querySelector('#calendar-event-type').dispatchEvent(new Event('change',{bubbles:true}))`);
+  const otherAnn=await countCalendar();
+  await evaluate(`document.querySelector('#calendar-event-type').value='BIRTHDAY';document.querySelector('#calendar-event-type').dispatchEvent(new Event('change',{bubbles:true}))`);
+  const otherBirthday=await countCalendar();
+  await evaluate(`document.querySelector('#calendar-event-type').value='ALL';document.querySelector('#calendar-event-type').dispatchEvent(new Event('change',{bubbles:true}))`);
+  await setCalendarCategories('ALL');const calendarFilter={all,pet,other,otherAnn,otherBirthday,reset:await countCalendar(),scroll:await evaluate('document.documentElement.scrollWidth')};
   check(calendarFilter.all === 5 && calendarFilter.pet === 3 && calendarFilter.other === 2
     && calendarFilter.otherAnn === 1 && calendarFilter.otherBirthday === 1
     && calendarFilter.reset === 5 && calendarFilter.scroll <= 390,
@@ -540,10 +555,8 @@ try {
     document.querySelector('#detail-dialog [data-close]').click();cell.querySelector('.day-open').click();
     const viaDay=document.querySelectorAll('#detail-body .item-row').length;
     document.querySelector('#detail-dialog [data-close]').click();
-    const category=document.querySelector('#calendar-category');category.value='PET';category.dispatchEvent(new Event('change'));
-    const placeholder=[...document.querySelectorAll('.calendar-event .avatar')].every(node=>!node.querySelector('img') && node.textContent==='別');
-    category.value='ALL';category.dispatchEvent(new Event('change'));
-    return {hidden,total:rows.length,viaDay,detail,placeholder,titles};})()`);
+    return {hidden,total:rows.length,viaDay,detail,titles};})()`);
+  await setCalendarCategories(['PET']);calendarOverflow.placeholder=await evaluate(`[...document.querySelectorAll('.calendar-event .avatar')].every(node=>!node.querySelector('img') && node.textContent==='別')`);await setCalendarCategories('ALL');
   check(calendarOverflow.hidden === '+4' && calendarOverflow.total === 5 && calendarOverflow.viaDay === 5
     && calendarOverflow.detail && calendarOverflow.placeholder
     && calendarOverflow.titles.some(title=>title.includes('お迎え日'))
@@ -557,17 +570,18 @@ try {
   await evaluate(`(()=>{const select=document.querySelector('#language-choice');select.value='ja';
     select.dispatchEvent(new Event('change',{bubbles:true}));})()`);
   await until(() => evaluate('document.documentElement.lang === "ja"'), 'アイコンラベル日本語');
+  await setCalendarCategories(['OTHER']);
   const calendarReuse = await evaluate(`(()=>{document.querySelector('[data-tab=calendar]').click();
     let created=0,reads=0;const create=URL.createObjectURL,getAll=IDBObjectStore.prototype.getAll;
     URL.createObjectURL=function(blob){created++;return create.call(URL,blob);};
     IDBObjectStore.prototype.getAll=function(...args){if(this.name==='images')reads++;return getAll.apply(this,args);};
-    const category=document.querySelector('#calendar-category');category.value='OTHER';category.dispatchEvent(new Event('change'));
     const before=document.querySelector('.calendar-event img').src;
     for(let i=0;i<6;i++){document.querySelector('#month-next').click();document.querySelector('#month-prev').click();
       document.querySelector('[data-tab=home]').click();document.querySelector('[data-tab=calendar]').click();}
     const after=document.querySelector('.calendar-event img').src;
-    const stable=before===after;category.value='ALL';category.dispatchEvent(new Event('change'));
+    const stable=before===after;
     URL.createObjectURL=create;IDBObjectStore.prototype.getAll=getAll;return {created,reads,stable};})()`);
+  await setCalendarCategories('ALL');
   check(calendarReuse.created === 0 && calendarReuse.reads === 0 && calendarReuse.stable,
     `月移動で画像を再取得しています: ${JSON.stringify(calendarReuse)}`);
   const calendarGeometry = await evaluate(`(()=>{const grid=document.querySelector('#calendar-grid');
@@ -819,7 +833,7 @@ try {
     mobileViews, distribution, orientation, english, peopleAfterUpdate, imagesAfterUpdate, cachesAfterUpdate,
     calendarAvatars,calendarOverflow,calendarReuse,calendarReplacement,calendarGeometry,calendarRegistration,calendarInteractions,pcDateRegistration,yoribi,
     waitingCache, settingsAfterUpdate, updateReloads,dayListGestures,home,birthdayUI,personActions,railManagement,calendarTaps,restoreLayout,
-    backupSecurity,privacyGuidance,iosStorageGuidance,releaseHistory,
+    backupSecurity,privacyGuidance,iosStorageGuidance,personCategoryCreate,categoryManagement,releaseHistory,
     avatarPickerRegression:{zero:pickerZero,cancel:pickerCancel,multiple:pickerMultiple,replacementPixel:replacementSelection},
     consoleErrors: errors.length, externalRequests: externalRequests.length }));
 } finally {

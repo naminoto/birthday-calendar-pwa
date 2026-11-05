@@ -25,9 +25,11 @@ if (!html.includes('http-equiv="Content-Security-Policy"')) {
   await writeFile(indexFile, html.replace('<meta charset="UTF-8">', `<meta charset="UTF-8">\n  ${csp}`));
 }
 const files = (await filesIn(root)).sort();
-const paths = files.map((file) => `./${relative(root, file).split(sep).join('/')}`);
+const normalizedRelative = (file) => relative(root, file).split(sep).join('/');
+const paths = files.map((file) => `./${normalizedRelative(file)}`);
 const hash = createHash('sha256');
-for (const file of files) { hash.update(relative(root, file)); hash.update(await readFile(file)); }
+// WindowsとLinuxで同じ公開ファイルから同じキャッシュIDを生成する。
+for (const file of files) { hash.update(normalizedRelative(file)); hash.update(await readFile(file)); }
 const cacheVersion = hash.digest('hex').slice(0, 16);
 const source = (await readFile(template, 'utf8'))
   .replace('__CACHE_VERSION__', cacheVersion).replace('__APP_VERSION__', appVersion)

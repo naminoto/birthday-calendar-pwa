@@ -39,3 +39,10 @@ test('Service Worker更新は旧シェルだけ消し、サブパスのオフラ
   assert.equal((await response).body, 'cached');
   assert.equal(source.includes('indexedDB'), false);
 });
+
+test('Service WorkerのキャッシュIDはWindowsとLinuxで同じパスを使う', () => {
+  const source=readFileSync(new URL('../scripts/generate-sw.mjs',import.meta.url),'utf8');
+  assert.match(source,/const normalizedRelative = \(file\) => relative\(root, file\)\.split\(sep\)\.join\('\/'\)/);
+  assert.match(source,/hash\.update\(normalizedRelative\(file\)\)/);
+  assert.doesNotMatch(source,/hash\.update\(relative\(root, file\)\)/);
+});

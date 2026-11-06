@@ -155,7 +155,7 @@ try {
     }
   }
   let yoribiFlow = null;
-  if (publicUrl && option('check-yoribi') === 'true') {
+  if (runUI && option('check-yoribi') === 'true') {
     yoribiFlow = await verifyYoribiUI({ evaluate, until, check, command });
   }
   let registrationFlow = null;
@@ -252,7 +252,10 @@ try {
     check([...beforeSettings].every(([key,record])=>JSON.stringify(afterSettings.get(key))===JSON.stringify(record)),
       'Existing settings changed during version upgrade');
     const addedSettings=[...afterSettings.keys()].filter(key=>!beforeSettings.has(key));
-    check(addedSettings.length===1&&addedSettings[0]==='categories','Unexpected settings added during version upgrade');
+    const [previousMajor,previousMinor]=previousVersion.split('.').map(Number);
+    const expectedAddedSettings=previousMajor<1||previousMajor===1&&previousMinor<5?['categories']:[];
+    check(JSON.stringify(addedSettings)===JSON.stringify(expectedAddedSettings),
+      `Unexpected settings added during version upgrade: ${JSON.stringify(addedSettings)}`);
     check(navigations - beforeNavigations === 1, 'Upgrade did not reload exactly once');
     check((await evaluate('window.__dataResetCalls')).length === 0, 'Upgrade called data clear/delete');
     await evaluate(`(()=>{document.querySelector('[data-tab=settings]').click();const input=document.querySelector('#import-backup'),transfer=new DataTransfer();
@@ -287,11 +290,13 @@ try {
     return {banner:banner?.textContent.trim(),meta:document.querySelector('meta[name="yoribi-preview-version"]')?.content,
       title:document.title,officialHistoryHasCurrent:versions.includes(${JSON.stringify(APP_VERSION)}),
       officialHistoryHasUnreleasedCandidate:versions.includes(${JSON.stringify(previewRelease)})&&${JSON.stringify(previewRelease)}!==${JSON.stringify(APP_VERSION)},
+      firstVersion:versions[0],
       firstDate:document.querySelector('#release-history .release-entry time')?.dateTime,
       pending:document.querySelector('#release-history [data-release-key=releaseDatePending]')?.textContent.trim()};})()`):null;
   if(preview)check(preview.banner?.includes(previewLabel)&&preview.meta===expectedAppVersion
     &&preview.title.includes(previewLabel)&&preview.officialHistoryHasCurrent&&!preview.officialHistoryHasUnreleasedCandidate
-    &&preview.firstDate==='2026-11-04'&&preview.pending===undefined,`Preview marker mismatch: ${JSON.stringify(preview)}`);
+    &&preview.firstVersion===APP_VERSION&&/^\d{4}-\d{2}-\d{2}$/.test(preview.firstDate)
+    &&preview.pending===undefined,`Preview marker mismatch: ${JSON.stringify(preview)}`);
   check(published.updateControls && published.transferGuide && published.statuses.every((status) => status === 200), 'Published UI or assets missing');
   if (previousDist) {
     check(published.calendarImages === 1 && published.calendarMarks.includes('🎂'), 'Calendar icons missing after upgrade');

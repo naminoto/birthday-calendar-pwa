@@ -1,6 +1,7 @@
 import 'fake-indexeddb/auto';
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {menuPosition} from '../src/person-menu.js';
 import {birthdayAssignedPerson} from '../src/calendar-move.js';
 import {openDatabase,savePerson,get,all,deletePerson} from '../src/db.js';
@@ -8,6 +9,22 @@ import {setLanguage,t} from '../src/i18n.js';
 
 test('メニューは人物付近の下へ表示する',()=>{
   assert.deepEqual(menuPosition({left:40,bottom:100},{width:220,height:150},{width:390,height:844}),{left:40,top:104});
+});
+
+test('人物メニューは同じトリガーで閉じ、別ポップアップと相互排他になる',()=>{
+  const source=readFileSync('src/person-menu.js','utf8'),popover=readFileSync('src/popover.js','utf8');
+  assert.match(source,/anchor===button&&personId===id/);
+  assert.match(source,/yoribi:popup-open/);
+  assert.match(source,/return false/);
+  assert.match(popover,/const toggle = \(\) => panel\.hidden \? open\(\) : close\(\)/);
+  assert.match(popover,/yoribi:popup-open/);
+});
+
+test('通常UIは選択を抑制し、入力・メモ・詳細URLは選択可能にする',()=>{
+  const css=readFileSync('src/yoribi.css','utf8');
+  assert.match(css,/\.app-shell,dialog,\.person-action-menu \{ user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; \}/);
+  assert.match(css,/input,textarea,\[contenteditable="true"\],\.detail-block p,\.detail-block a/);
+  assert.match(css,/user-select:text; -webkit-user-select:text; -webkit-touch-callout:default/);
 });
 test('右下端のメニューは画面内へ移す',()=>{
   const p=menuPosition({left:375,bottom:830},{width:220,height:150},{width:390,height:844});

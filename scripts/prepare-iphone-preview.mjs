@@ -6,7 +6,10 @@ import {join,relative,dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 const root=fileURLToPath(new URL('../',import.meta.url)),dist=join(root,'dist');
 const sourceVersion=JSON.parse(await readFile(join(root,'package.json'),'utf8')).version;
-const candidateVersion='1.4.3-candidate';
+const versionArgument=process.argv.find(value=>value.startsWith('--preview-version='));
+const candidateVersion=versionArgument?.slice('--preview-version='.length)||`${sourceVersion}-candidate`;
+if(!/^\d+\.\d+\.\d+-candidate$/.test(candidateVersion))throw Error('Preview version must use x.y.z-candidate');
+const candidateRelease=candidateVersion.replace('-candidate',''),candidateLabel=`v${candidateRelease}候補`;
 const avatarDiagnostics=process.argv.includes('--avatar-diagnostics');
 // 既定は診断なしの正式候補build。明示フラグ時だけ診断buildを許可する。
 execFileSync(process.execPath,[join(root,'scripts/audit-dist.mjs'),...(avatarDiagnostics?['--allow-avatar-diagnostics']:[])],{cwd:root,stdio:'inherit'});
@@ -35,12 +38,12 @@ await writeFile(manifestPath,JSON.stringify(manifest,null,2)+'\n');
 const htmlPath=join(site,'index.html');
 const html=await readFile(htmlPath,'utf8');
 if(!html.includes('name="apple-mobile-web-app-title" content="Yoribi"'))throw Error('Unexpected Apple title');
-const previewBanner='<div class="update-banner" id="preview-candidate-banner" role="status"><span><strong>テスト版 / Test build</strong> · v1.4.3候補</span></div>';
+const previewBanner=`<div class="update-banner" id="preview-candidate-banner" role="status"><span><strong>テスト版 / Test build</strong> · ${candidateLabel}</span></div>`;
 await writeFile(htmlPath,html
   .replace('<meta name="referrer" content="no-referrer">',`<meta name="referrer" content="no-referrer">\n  <meta name="yoribi-preview-version" content="${candidateVersion}">`)
-  .replace(`<meta name="yoribi-preview-version" content="${candidateVersion}">`,`<meta name="yoribi-preview-version" content="${candidateVersion}">\n  <meta name="yoribi-preview-title" content="Yoribi テスト · v1.4.3候補">`)
+  .replace(`<meta name="yoribi-preview-version" content="${candidateVersion}">`,`<meta name="yoribi-preview-version" content="${candidateVersion}">\n  <meta name="yoribi-preview-title" content="Yoribi テスト · ${candidateLabel}">`)
   .replace('name="apple-mobile-web-app-title" content="Yoribi"','name="apple-mobile-web-app-title" content="Yoribi テスト"')
-  .replace('<title>Yoribi</title>','<title>Yoribi テスト · v1.4.3候補</title>')
+  .replace('<title>Yoribi</title>',`<title>Yoribi テスト · ${candidateLabel}</title>`)
   .replace('<div class="app-shell">',`<div class="app-shell">\n    ${previewBanner}`));
 // 同じSWテンプレートで、テスト版のHTML/manifestを含む内容ハッシュを作る。
 const assets=(await walk(site)).filter(path=>relative(site,path)!=='sw.js');
@@ -64,13 +67,25 @@ await writeFile(join(target,'PREVIEW.json'),JSON.stringify({
   avatarDiagnostics,
   productionOrigin:'https://naminoto.github.io',previewOwner:'yoribi-preview',previewUrl:'https://yoribi-preview.github.io/yoribi-test/',
   requiresApproval:true,
-  candidateChanges:['Encrypted .yoribi backups and legacy ZIP restore','Managed data deletion and privacy guidance',
-    'iOS storage guidance and Safari-to-Home-Screen transfer steps','High-resolution profile-image crop, compression and cancel-state fixes',
-    'Person-form initial focus fix','Bundled release-candidate history',
+  candidateChanges:['Eight built-in categories with stable identifiers','Custom category add, rename, color and transactional reassignment on delete',
+    'Create and select custom categories inside the person add and edit form without losing drafts',
+    'Custom categories keep creation order and Other is always last',
+    'Animated bottom navigation indicator with a one-person to two-person icon transition',
+    'Synchronized month-day and inline birthday calendar editing without leaving the person form',
+    'Overlay category filters for the calendar and independent person management filtering',
+    'Birthday input mode switching preserves values without opening the native month picker',
+    'Person rail controls are ordered as sort, category filter and registration filter without a duplicate sort menu item',
+    'Home, calendar, birthday and settings navigation icons use settled internal-part animations',
+    'People silhouettes keep separated shoulder contours and the settings gear is rotationally symmetric',
+    'Menus and category popovers close on same-trigger retap and are mutually exclusive',
+    'Fixed UI text resists accidental touch selection while inputs, notes and profile links remain selectable',
+    'In-app bulk delete confirmation with filtered selection safety',
+    'Removed the duplicate header settings button while preserving bottom navigation',
+    'Multi-category calendar visibility controls','Category backup format v2 with v0/v1 restore compatibility',
+    'X profile URL username auto-fill guidance',
     ...(avatarDiagnostics?['Preview-only avatar picker event diagnostics']:[]),
-    'iPhone multiple photo picker with exactly-one selection safeguard',
-    'Password AutoFill-safe read-only confirmation preview'],
-  compatibility:{indexedDBVersion:3,zipFormatVersion:1,productionUnchanged:true},files,
+    'Existing v1.4.3 encrypted backup, photo picker and Password AutoFill-safe password preview features'],
+  compatibility:{indexedDBVersion:3,zipFormatVersion:2,restoresZipFormatVersions:[0,1,2],productionUnchanged:true},files,
 },null,2)+'\n');
 console.log(JSON.stringify({preparedOnly:true,published:false,output:target,sourceVersion,appVersion:candidateVersion,
   avatarDiagnostics,siteFiles:files.length,siteBytes:files.reduce((sum,file)=>sum+file.bytes,0),next:'Read docs/iphone-preflight.md; approval required before GitHub actions'},null,2));

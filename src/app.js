@@ -1,6 +1,8 @@
 import './style.css';
 import './crop.css';
 import './yoribi.css';
+import './bottom-nav.css';
+import './birthday-picker.css';
 import './home.css';
 import './fonts.css';
 import './date-fields.css';
@@ -33,12 +35,15 @@ import { setupSettingsSections, setupOutlineIcons } from './settings-ui.js';
 import { reorderDayEvents } from './db.js';
 import { entryId } from './calendar-order.js';
 import { homeOverview } from './home.js';
-import {RAIL_SORTS,sortedRailPeople} from './rail-management.js';
+import {RAIL_SORTS,sortedRailPeople,filteredRailPeople} from './rail-management.js';
 import {categoryDefinitions,categoryName as categoryDisplayName,categoryColor,visibleCategoryIds} from './categories.js';
+import {setupBottomNavMotion} from './bottom-nav.js';
+import {setupBirthdayPicker} from './birthday-picker.js';
+import {setupPopover} from './popover.js';
 
 const $ = (id) => document.getElementById(id);
-let avatarEditor, updates, gestures, personMenu, railMenu, birthDateFields, birthYearFields, iosStorageGuide, pendingMove = null, moveSaving = false;
-let calendarDialogOrigin=null,pendingCategoryDelete=null;
+let avatarEditor, updates, gestures, personMenu, railMenu, birthDateFields, birthYearFields, birthdayPicker, iosStorageGuide, bottomNavMotion, pendingMove = null, moveSaving = false;
+let calendarDialogOrigin=null,pendingCategoryDelete=null,pendingRailDelete=null,calendarCategoryPopover,railCategoryPopover;
 let restoreBusy=false;
 let exportBusy=false;
 let deletionBusy=false;
@@ -49,7 +54,8 @@ let appearance = { ...DEFAULT_APPEARANCE };
 const state = { db: null, people: [], images: new Map(), notices: [], settings: null,categoryConfig:null,
   today: tokyoToday(), month: null, selectedPersonId: null, detailPersonId: null, detailDay:null, formCalendarDate:null,
   railFilter: 'all', transferRoute: 'phone-pc', preparedBackup: null, selectionEvent:null,
-  railSort:'nameAsc',railSortOpen:false,railBulk:false,railSelected:new Set(),railDeleting:false };
+  railSort:'nameAsc',railBulk:false,railSelected:new Set(),railDeleting:false,
+  railHiddenCategoryIds:new Set() };
 const [todayYear, todayMonth] = state.today.split('-').map(Number);
 state.month = new Date(Date.UTC(todayYear, todayMonth - 1, 1));
 
@@ -108,6 +114,7 @@ function switchTab(tab) {
     button.classList.toggle('active', button.dataset.tab === tab);
     button.setAttribute('aria-current', button.dataset.tab === tab ? 'page' : 'false');
   }
+  bottomNavMotion?.update(tab);
   if (location.hash !== `#${tab}`) history.replaceState(null, '', `#${tab}`);
   if (tab === 'settings') renderStorageStats();
   window.scrollTo({ top: 0, behavior: 'instant' });
@@ -149,8 +156,7 @@ function renderCalendar() {
   const year = state.month.getUTCFullYear(), month = state.month.getUTCMonth() + 1;
   $('month-title').textContent = t('dateMonth', { year, month });
   renderSelection();
-  const railPeople = state.railFilter === 'unregistered'
-    ? state.people.filter((person) => !birthdayOf(person)) : state.people;
+  const railPeople = filteredRailPeople(state.people,{birthday:state.railFilter,hiddenCategoryIds:state.railHiddenCategoryIds});
   $('rail-count').textContent = t('peopleCount', { count:railPeople.length });
   renderRailManagement();
   if (!railPeople.length) empty($('person-rail'), t('noPeople'));
@@ -301,7 +307,7 @@ function openDayPeople(events, month, day) {
     });
     return row;
   }));
-  $('detail-edit').hidden = true; $('detail-choose').hidden = true; $('day-add').hidden = false;
+  $('detail-edit').hidden = true; $('day-add').hidden = false;
   const selected = byId(state.selectedPersonId);
   $('day-assign').hidden = !selected;
   if (selected) $('day-assign').textContent = state.selectionEvent?t('moveSelectedEvent',{name:selected.displayName}):t('assignBirthdayOnDate', { name:selected.displayName });
@@ -344,10 +350,9 @@ function setupRailManagement(){
   const remove=el('button','danger-link');remove.type='button';remove.id='rail-delete-selected';remove.onclick=deleteSelectedPeople;
   const cancel=el('button','quiet');cancel.type='button';cancel.id='rail-bulk-cancel';cancel.onclick=()=>{if(state.railDeleting)return;state.railBulk=false;state.railSelected.clear();$('rail-error').hidden=true;renderCalendar();$('rail-manage').focus({preventScroll:true});};
   toolbar.append(count,remove,cancel);const error=el('p','form-error');error.id='rail-error';error.setAttribute('role','alert');error.hidden=true;
-  heading.after(sortLabel,toolbar,error);
+  heading.after(sortLabel);document.querySelector('.rail-registration-filter').after(toolbar,error);
   railMenu=setupPersonMenu({id:'rail-manage-menu',label:()=>t('managePeople'),actions:[
-    {key:'bulk',label:()=>t('bulkDeleteMode'),run:()=>{state.railBulk=true;state.railSelected.clear();state.selectedPersonId=null;state.selectionEvent=null;$('rail-error').hidden=true;renderCalendar();$('rail-bulk-cancel').focus({preventScroll:true});}},
-    {key:'sort',label:()=>t('sort'),run:()=>{state.railSortOpen=true;renderCalendar();$('rail-sort').focus({preventScroll:true});}},
+    {key:'bulk',danger:true,icon:'trash',label:()=>t('bulkDeleteMode'),run:()=>{state.railBulk=true;state.railSelected.clear();state.selectedPersonId=null;state.selectionEvent=null;$('rail-error').hidden=true;renderCalendar();$('rail-bulk-cancel').focus({preventScroll:true});}},
   ]});
   manage.onclick=()=>{personMenu?.close(false);railMenu.open('rail',manage);};
   sort.onchange=()=>{state.railSort=sort.value;renderCalendar();};
@@ -355,7 +360,7 @@ function setupRailManagement(){
 }
 function renderRailManagement(){
   $('rail-manage-label').textContent=t('managePeople');$('rail-manage').disabled=state.railBulk||state.railDeleting;
-  $('rail-sort-control').hidden=!state.railSortOpen;$('rail-sort-label').textContent=t('sort');$('rail-sort').value=state.railSort;
+  $('rail-sort-control').hidden=false;$('rail-sort-label').textContent=t('sort');$('rail-sort').value=state.railSort;
   $('rail-sort').disabled=state.railDeleting;
   document.querySelector('.people-rail .help').textContent=t(state.railBulk?'railBulkHelp':'railHelp');
   for(const option of $('rail-sort').options)option.textContent=t('railSort_'+option.value);
@@ -368,11 +373,22 @@ function renderRailManagement(){
 async function deleteSelectedPeople(){
   if(state.railDeleting||!state.railSelected.size)return;
   const ids=[...state.railSelected],people=ids.map(byId);if(people.some(p=>!p))return;
-  if(!confirm(t('bulkDeleteQuestion',{count:ids.length,names:people.map(p=>p.displayName).join('\n')})))return;
+  pendingRailDelete={ids,people};
+  $('rail-delete-description').textContent=t('bulkDeleteDialogDescription',{count:ids.length});
+  $('rail-delete-names').replaceChildren(...people.map(person=>el('li','',person.displayName)));
+  $('rail-delete-warning').textContent=t('bulkDeleteWarning');
+  $('rail-delete-confirm').textContent=t('bulkDeleteConfirm',{count:ids.length});
+  $('rail-delete-dialog').showModal();
+}
+async function confirmSelectedPeopleDeletion(){
+  if(state.railDeleting||!pendingRailDelete)return;
+  const {ids}=pendingRailDelete;
+  if(ids.some(id=>!state.railSelected.has(id)||!byId(id))){pendingRailDelete=null;$('rail-delete-dialog').close();return;}
   state.railDeleting=true;$('rail-error').hidden=true;renderRailManagement();
-  try{await deletePeople(state.db,ids);state.railSelected.clear();state.railBulk=false;state.selectedPersonId=null;state.selectionEvent=null;await refresh();toast(t('peopleDeleted',{count:ids.length}));}
+  $('rail-delete-confirm').disabled=true;$('rail-delete-cancel').disabled=true;
+  try{await deletePeople(state.db,ids);pendingRailDelete=null;$('rail-delete-dialog').close();state.railSelected.clear();state.railBulk=false;state.selectedPersonId=null;state.selectionEvent=null;await refresh();toast(t('peopleDeleted',{count:ids.length}));}
   catch(error){$('rail-error').textContent=errorText(error);$('rail-error').hidden=false;}
-  finally{state.railDeleting=false;renderRailManagement();}
+  finally{state.railDeleting=false;$('rail-delete-confirm').disabled=false;$('rail-delete-cancel').disabled=false;renderRailManagement();}
 }
 async function requestPersonDeletion(id) {
   const person=byId(id);if(!person||!confirm(t('deleteQuestion',{name:person.displayName})))return;
@@ -428,7 +444,7 @@ function openDetail(id) {
   state.detailPersonId = id; state.detailDay = null;
   $('detail-dialog').querySelector('h2').textContent = t('detail');
   $('day-add').hidden = true; $('day-assign').hidden = true;
-  $('detail-edit').hidden = false; $('detail-choose').hidden = false;
+  $('detail-edit').hidden = false;
   const body = $('detail-body'); body.replaceChildren();
   const top = el('div', 'detail-top'); top.append(avatar(person, true));
   const text = el('div'); text.append(el('h3', '', person.displayName), el('p', '',
@@ -502,6 +518,7 @@ function openForm(id = null, initialDate = null) {
   $('person-x-url').value = person?.xProfileUrl ?? ''; $('person-memo').value = person?.memo ?? '';
   const b = person && birthdayOf(person);
   birthDateFields.set(b?.month??state.formCalendarDate?.month??'',b?.day??state.formCalendarDate?.day??'');
+  birthdayPicker.reset(b?.month??state.formCalendarDate?.month??'',b?.day??state.formCalendarDate?.day??'');
   birthYearFields.set(b?.year??''); $('person-show-age').checked = b?.showAge ?? false;
   $('remove-image-wrap').hidden = !person?.hasImage; $('delete-person').hidden = !person;
   $('anniversary-fields').replaceChildren(...(person?.anniversaries.filter((ann) => ann.type !== 'BIRTHDAY') ?? []).map(anniversaryRow));
@@ -618,6 +635,21 @@ function renderCategoryControls() {
   }));
   $('calendar-category-summary').textContent=t('calendarCategoriesSummary',{
     visible:definitions.length-hidden.size,total:definitions.length});
+  const knownRailIds=new Set(definitions.map((entry)=>entry.id));
+  state.railHiddenCategoryIds=new Set([...state.railHiddenCategoryIds].filter((id)=>knownRailIds.has(id)));
+  const railHost=$('rail-category-options');
+  railHost.replaceChildren(...definitions.map((entry)=>{
+    const label=el('label'),check=el('input'),dot=el('span','category-dot'),name=el('span','',entry.name);
+    check.type='checkbox';check.checked=!state.railHiddenCategoryIds.has(entry.id);check.dataset.railCategoryId=entry.id;
+    dot.style.setProperty('--category-color',entry.color);
+    check.onchange=()=>{
+      if(check.checked)state.railHiddenCategoryIds.delete(entry.id);else state.railHiddenCategoryIds.add(entry.id);
+      state.railSelected.clear();$('rail-error').hidden=true;renderCategoryControls();renderCalendar();
+    };
+    label.append(check,dot,name);return label;
+  }));
+  $('rail-category-summary').textContent=t('railCategoriesSummary',{
+    visible:definitions.length-state.railHiddenCategoryIds.size,total:definitions.length});
   renderCategoryManager();
 }
 
@@ -741,7 +773,7 @@ async function previewRestore(file) {
         try{
         appearance = await loadAppearance(state.db); applyAppearance(appearance);
         setLanguage(await loadLanguage(state.db)); $('language-choice').value = currentLanguage();
-        applyStaticTranslations();refreshExitGuide(t); avatarEditor.refreshLanguage();iosStorageGuide.refreshLanguage(); birthYearFields.refresh();birthDateFields.refresh(); await refresh();
+        applyStaticTranslations();refreshExitGuide(t); avatarEditor.refreshLanguage();iosStorageGuide.refreshLanguage(); birthYearFields.refresh();birthDateFields.refresh();birthdayPicker.refreshLanguage(); await refresh();
         await renderStorageStats(); updates?.refreshLanguage(); toast(t('restoreDone'));
         }catch{toast(t('restoreDisplayFailed'));} }
       catch (error) { toast(errorText(error)); }
@@ -764,12 +796,16 @@ function initOptions() {
 }
 
 function bindEvents() {
-  setupSettingsSections(t); setupOutlineIcons();
+  setupSettingsSections(t); setupOutlineIcons();bottomNavMotion=setupBottomNavMotion();
   setupExitUI(t,{backup:exportBackup,erase:deleteDeviceData});
   iosStorageGuide=setupIOSStorageGuidance({t,openSettings:()=>switchTab('settings')});
   birthDateFields=setupMonthDay($('person-birth-month'),$('person-birth-day'),{monthLabel,dayLabel,empty:()=>t('unregistered')});birthDateFields.bind();
+  birthdayPicker=setupBirthdayPicker({month:$('person-birth-month'),day:$('person-birth-day'),
+    modeButtons:[...document.querySelectorAll('[data-birth-mode]')],monthDayPanel:$('birthday-fields-panel'),calendarPanel:$('birthday-calendar-panel'),
+    title:$('birthday-calendar-title'),grid:$('birthday-calendar-grid'),previous:$('birthday-calendar-prev'),next:$('birthday-calendar-next'),
+    todayButton:$('birthday-calendar-today'),today:state.today,t,monthLabel,onSelect:(month,day)=>{birthDateFields.set(month,day);birthdayPicker.sync();}});
+  birthdayPicker.refreshLanguage();
   birthYearFields=setupBirthYear({input:$('person-birth-year'),choice:$('person-birth-year-choice'),mode:$('person-birth-year-mode'),currentYear:todayYear,t});birthYearFields.set();
-  $('header-settings').onclick = () => switchTab('settings');
   $('theme-choice').onchange = async (event) => {
     try { const next = { theme:event.target.value }; await saveAppearance(state.db,next); appearance=next; applyAppearance(appearance); }
     catch(error) { $('theme-choice').value=appearance.theme; toast(errorText(error)); }
@@ -782,6 +818,8 @@ function bindEvents() {
     {key:'delete',label:()=>t('menuDeletePerson'),run:requestPersonDeletion},
   ]});
   setupRailManagement();
+  calendarCategoryPopover=setupPopover({trigger:$('calendar-category-trigger'),panel:$('calendar-category-popover')});
+  railCategoryPopover=setupPopover({trigger:$('rail-category-trigger'),panel:$('rail-category-popover')});
   gestures = setupCalendarGestures({ grid:$('calendar-grid'),
     enabled:()=>!state.railBulk&&!state.railDeleting,
     roots:[$('calendar-grid'), $('person-rail'), $('people-list'), $('detail-body')], onMove:requestEventMove, onSelect:selectPerson,
@@ -806,7 +844,7 @@ function bindEvents() {
     try {
       await saveLanguage(state.db, event.target.value);
       setLanguage(event.target.value); applyStaticTranslations();refreshExitGuide(t); avatarEditor.refreshLanguage();iosStorageGuide.refreshLanguage();
-      birthDateFields.refresh();birthYearFields.refresh();renderCategoryControls();
+      birthDateFields.refresh();birthYearFields.refresh();birthdayPicker.refreshLanguage();renderCategoryControls();
       renderHome(); renderCalendar(); renderPeople(); renderBirthdays(); renderNotifications(); renderSettings();
       if ($('detail-dialog').open && state.detailPersonId) openDetail(state.detailPersonId);
       else if ($('detail-dialog').open && state.detailDay) {
@@ -873,8 +911,6 @@ function bindEvents() {
     if(state.selectionEvent){requestEventMove({personId:id,...state.selectionEvent,to:`${date.year}-${String(date.month).padStart(2,'0')}-${String(date.day).padStart(2,'0')}`});}
     else await assignBirthday(id, date.month, date.day);
   };
-  $('detail-choose').onclick = () => { const id=state.detailPersonId;
-    $('detail-dialog').close();selectPerson(id);renderCalendar(); };
   $('delete-person').onclick = () => requestPersonDeletion($('person-id').value);
   $('calendar-today').onclick = () => { state.month = new Date(Date.UTC(todayYear, todayMonth - 1, 1)); renderCalendar(); };
   $('month-prev').onclick = () => { state.month = new Date(Date.UTC(state.month.getUTCFullYear(), state.month.getUTCMonth() - 1, 1)); renderCalendar(); };
@@ -884,9 +920,15 @@ function bindEvents() {
     state.railFilter = button.dataset.railFilter;
     for (const peer of document.querySelectorAll('[data-rail-filter]')) peer.classList.toggle('active', peer === button);
     renderCalendar(); };
+  $('rail-categories-reset').onclick=()=>{state.railHiddenCategoryIds.clear();state.railSelected.clear();$('rail-error').hidden=true;renderCategoryControls();renderCalendar();};
+  $('rail-categories-none').onclick=()=>{state.railHiddenCategoryIds=new Set(categories().map((entry)=>entry.id));state.railSelected.clear();$('rail-error').hidden=true;renderCategoryControls();renderCalendar();};
   $('calendar-categories-all').onclick=async()=>{try{state.categoryConfig=await updateAllCategoryVisibility(state.db,true);renderCategoryControls();renderCalendar();}catch(error){toast(errorText(error));}};
   $('calendar-categories-none').onclick=async()=>{try{state.categoryConfig=await updateAllCategoryVisibility(state.db,false);renderCategoryControls();renderCalendar();}catch(error){toast(errorText(error));}};
   $('calendar-event-type').onchange = renderCalendar;
+  $('rail-delete-cancel').onclick=()=>{if(!state.railDeleting)$('rail-delete-dialog').close();};
+  $('rail-delete-confirm').onclick=confirmSelectedPeopleDeletion;
+  $('rail-delete-dialog').addEventListener('cancel',(event)=>{if(state.railDeleting)event.preventDefault();});
+  $('rail-delete-dialog').addEventListener('close',()=>{if(!state.railDeleting)pendingRailDelete=null;});
   for (const id of ['people-search', 'people-category', 'people-month', 'people-birthday', 'people-sort'])
     $(id).addEventListener('input', renderPeople);
   for (const id of ['birthday-month', 'birthday-category']) $(id).addEventListener('change', renderBirthdays);
@@ -928,7 +970,7 @@ async function boot() {
     initOptions(); bindEvents(); state.db = await openDatabase();
     appearance = await loadAppearance(state.db); applyAppearance(appearance);
     setLanguage(await loadLanguage(state.db)); $('language-choice').value = currentLanguage();
-    $('app-version').textContent = APP_VERSION; applyStaticTranslations();refreshExitGuide(t);birthYearFields.refresh(); await refresh();
+    $('app-version').textContent = APP_VERSION; applyStaticTranslations();refreshExitGuide(t);birthYearFields.refresh();birthdayPicker.refreshLanguage(); await refresh();
     iosStorageGuide.refreshLanguage();iosStorageGuide.maybeShow({hasData:state.people.length>0});
     switchTab(location.hash.slice(1) || 'home');
     if (import.meta.env.PROD) updates = await setupUpdates({ t, errorText,isStopped:()=>Boolean(state.ending),

@@ -2,6 +2,13 @@
 // 未公開候補の公開日はnullのまま捏造せず、正式公開時に実日付へ置き換える。
 // 公開済みの日付と内容は正式repoのRelease commit・README・公開前/最終検証資料で確認する。
 export const RELEASE_HISTORY = [
+  {version:'1.6.0',date:'2026-11-06',changes:[
+    {category:'new',ja:'人物の誕生日を月・日またはインラインカレンダーで選べるようにし、入力方式を切り替えても日付とフォーム内容を保持するようにしました。',en:'Added month/day and inline-calendar birthday entry while preserving the selected date and form contents when switching modes.'},
+    {category:'improvement',ja:'閲覧カレンダーと人物一覧のカテゴリ絞り込みを独立したオーバーレイへ整理し、人物管理の並び順・登録状態・安全な一括削除を使いやすくしました。',en:'Refined independent overlay category filters for the calendar and people list, together with sorting, registration filters, and safer bulk deletion.'},
+    {category:'improvement',ja:'下部ナビゲーションに選択背景のスライドと各アイコンの形状変化を追加し、動きを減らす設定にも対応しました。',en:'Added a sliding selection background and shape transitions to bottom navigation icons, with reduced-motion support.'},
+    {category:'fix',ja:'人物アイコンの輪郭交差と歯車アニメーションの跳ね戻りを修正し、同じメニューの再タップ・外側タップ・Escapeで閉じられるようにしました。',en:'Fixed overlapping people-icon contours and gear animation snap-back, and made menus close on trigger retap, outside tap, or Escape.'},
+    {category:'improvement',ja:'iPhoneで固定UI文字の不要な長押し選択を抑えつつ、入力欄・メモ・プロフィールURLと既存の長押し操作を維持しました。',en:'Reduced accidental long-press selection of fixed UI text on iPhone while preserving selectable inputs, notes, profile URLs, and existing long-press actions.'},
+  ]},
   {version:'1.5.0',date:'2026-11-05',changes:[
     {category:'new',ja:'8種類の既定カテゴリと自由に追加できるカスタムカテゴリを導入し、名前・色・使用人数を設定から管理できるようにしました。',en:'Added eight built-in categories and custom categories with name, color, and usage management in Settings.'},
     {category:'new',ja:'人物の追加・編集中に、入力内容や画像を保持したまま新しいカテゴリを作成してその場で選択できるようにしました。',en:'Added in-form category creation while preserving person details and images, with the new category selected immediately.'},

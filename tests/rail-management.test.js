@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {openDatabase,savePerson,deletePeople,all,get} from '../src/db.js';
-import {sortedRailPeople} from '../src/rail-management.js';
+import {sortedRailPeople,filteredRailPeople} from '../src/rail-management.js';
 const rows=[{id:'b',displayName:'Beta',createdAt:'2024-01-01',anniversaries:[{type:'BIRTHDAY',month:1,day:1}]},{id:'a',displayName:'Alpha',createdAt:'2025-01-01',anniversaries:[{type:'BIRTHDAY',month:12,day:31}]},{id:'c',displayName:'Gamma',createdAt:'2023-01-01',anniversaries:[]}];
 for(const [sort,expected] of [['nameAsc',['a','b','c']],['nameDesc',['c','b','a']],['birthday',['a','b','c']],['newest',['a','b','c']],['oldest',['c','b','a']]])test('人物欄の表示専用ソート: '+sort,()=>{
   const before=structuredClone(rows);assert.deepEqual(sortedRailPeople(rows,sort,'2028-12-30','en').map(p=>p.id),expected);assert.deepEqual(rows,before);
@@ -11,6 +11,12 @@ for(const [sort,expected] of [['nameAsc',['a','b','c']],['nameDesc',['c','b','a'
 test('誕生日順は当日・平年2/29・未登録と同日名前順を既存ルールで扱う',()=>{
   const people=[{...rows[0],anniversaries:[{type:'BIRTHDAY',month:2,day:29}]},{...rows[1],anniversaries:[{type:'BIRTHDAY',month:2,day:28}]},rows[2]];
   assert.deepEqual(sortedRailPeople(people,'birthday','2027-02-28','en').map(p=>p.id),['a','b','c']);
+});
+test('人物管理のカテゴリ絞り込みはカレンダー表示設定と独立し、未登録条件と組み合わせる',()=>{
+  const people=[{...rows[0],category:'PET'},{...rows[1],category:'OTHER'}, {...rows[2],category:'CUSTOM_00000000-0000-4000-8000-000000000001'}];
+  assert.deepEqual(filteredRailPeople(people,{hiddenCategoryIds:new Set(['OTHER'])}).map(person=>person.id),['b','c']);
+  assert.deepEqual(filteredRailPeople(people,{birthday:'unregistered',hiddenCategoryIds:new Set(['PET'])}).map(person=>person.id),['c']);
+  assert.equal(people.length,3);
 });
 async function fixture(){const db=await openDatabase('bulk-'+crypto.randomUUID());const people=[];
   for(const name of ['A','B','C'])people.push(await savePerson(db,{displayName:name,category:'OTHER',memo:name,anniversaries:[{type:'BIRTHDAY',month:5,day:10,year:2000},{id:crypto.randomUUID(),type:'CUSTOM',title:'架空記念日',month:6,day:1,recurring:true,notify:true}],links:[]},{image:new Blob([name],{type:'image/png'})}));
@@ -29,4 +35,9 @@ test('途中でtransactionがabortしても一人も削除しない',async()=>{c
 test('空の一括選択は削除しない',async()=>{const {db}=await fixture();try{await assert.rejects(deletePeople(db,[]));assert.equal((await all(db,'people')).length,3);}finally{db.close();}});
 test('日付セル内メニューを生成せず人物欄メニューと一括ドラッグガードを維持する',()=>{
   const app=readFileSync('src/app.js','utf8');assert.doesNotMatch(app,/cell\.append\(personMenuTrigger/);assert.match(app,/wrap\.append\(button,personMenuTrigger/);assert.match(app,/enabled:\(\)=>!state\.railBulk/);assert.match(app,/if\(state\.railBulk\)return/);
+});
+test('人物管理メニューは重複ソートを持たず、並び順を常時表示する',()=>{
+  const app=readFileSync('src/app.js','utf8');assert.doesNotMatch(app,/key:'sort'/);
+  assert.match(app,/\$\('rail-sort-control'\)\.hidden=false/);
+  assert.match(app,/heading\.after\(sortLabel\)/);
 });

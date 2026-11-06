@@ -11,14 +11,18 @@ export function setupPersonMenu({label,actions,id:menuId='person-action-menu',do
   const close=(restore=true)=>{if(menu.hidden)return;menu.hidden=true;anchor?.setAttribute('aria-expanded','false');
     if(restore&&anchor?.isConnected)anchor.focus({preventScroll:true});anchor=null;personId=null;};
   const open=(id,button,context={})=>{
+    if(!menu.hidden&&anchor===button&&personId===id){close();return false;}
+    doc.dispatchEvent(new win.CustomEvent('yoribi:popup-open',{detail:{owner:menu}}));
     close(false);anchor=button;personId=id;button.setAttribute('aria-expanded','true');
     menu.setAttribute('aria-label',label(id));menu.replaceChildren();
     for(const action of actions){const item=doc.createElement('button');item.type='button';item.setAttribute('role','menuitem');
-      item.dataset.action=action.key;item.textContent=action.label();
-      if(action.key==='delete')item.className='danger-link';
+      item.dataset.action=action.key;
+      if(action.icon==='trash'){const icon=doc.createElement('span');icon.setAttribute('aria-hidden','true');icon.textContent='🗑';item.append(icon,doc.createTextNode(action.label()));}
+      else item.textContent=action.label();
+      if(action.key==='delete'||action.danger)item.className='danger-link';
       item.onclick=()=>{close();action.run(id,context);};menu.append(item);}
     menu.hidden=false;const size=menu.getBoundingClientRect(),p=menuPosition(button.getBoundingClientRect(),size,{width:win.innerWidth,height:win.innerHeight});
-    menu.style.left=p.left+'px';menu.style.top=p.top+'px';menu.querySelector('button').focus({preventScroll:true});
+    menu.style.left=p.left+'px';menu.style.top=p.top+'px';menu.querySelector('button').focus({preventScroll:true});return true;
   };
   const outside=e=>{if(!menu.hidden&&!menu.contains(e.target)&&!anchor?.contains(e.target))close(false);};
   const keys=e=>{if(menu.hidden)return;if(e.key==='Escape'){e.preventDefault();e.stopPropagation();close();return;}
@@ -26,8 +30,10 @@ export function setupPersonMenu({label,actions,id:menuId='person-action-menu',do
     const next=e.key==='ArrowDown'?(i+1)%items.length:e.key==='ArrowUp'?(i+items.length-1)%items.length:e.key==='Home'?0:e.key==='End'?items.length-1:null;
     if(next!==null){e.preventDefault();items[next].focus();}};
   const dismiss=()=>close(false);
+  const otherPopup=event=>{if(event.detail?.owner!==menu)close(false);};
   doc.addEventListener('pointerdown',outside,true);doc.addEventListener('keydown',keys,true);
+  doc.addEventListener('yoribi:popup-open',otherPopup);
   win.addEventListener('resize',dismiss);win.addEventListener('scroll',dismiss,true);win.addEventListener('pagehide',dismiss);
   return {open,close,removePerson:id=>{if(personId===id)close(false);},destroy(){close(false);menu.remove();
-    doc.removeEventListener('pointerdown',outside,true);doc.removeEventListener('keydown',keys,true);win.removeEventListener('resize',dismiss);win.removeEventListener('scroll',dismiss,true);win.removeEventListener('pagehide',dismiss);}};
+    doc.removeEventListener('pointerdown',outside,true);doc.removeEventListener('keydown',keys,true);doc.removeEventListener('yoribi:popup-open',otherPopup);win.removeEventListener('resize',dismiss);win.removeEventListener('scroll',dismiss,true);win.removeEventListener('pagehide',dismiss);}};
 }

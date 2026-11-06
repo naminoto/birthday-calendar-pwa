@@ -5,6 +5,7 @@ import {APP_VERSION} from '../src/version.js';
 import {RELEASE_HISTORY} from '../src/release-history.js';
 
 const CONFIRMED_RELEASES = [
+  ['1.6.0','2026-11-06'],
   ['1.5.0','2026-11-05'],
   ['1.4.3','2026-11-04'],
   ['1.4.2','2026-10-22'],
@@ -44,8 +45,8 @@ test('各履歴は分類済みの日英テキストを持つ',()=>{
   }
 });
 
-test('v1.5.0は実際の正式公開日を記録し、将来の未確定日表示も維持する',()=>{
-  assert.equal(RELEASE_HISTORY[0].date,'2026-11-05');
+test('v1.6.0は実際の正式公開日を記録し、将来の未確定日表示も維持する',()=>{
+  assert.equal(RELEASE_HISTORY[0].date,'2026-11-06');
   const ui=readFileSync(new URL('../src/release-history-ui.js',import.meta.url),'utf8');
   const i18n=readFileSync(new URL('../src/i18n.js',import.meta.url),'utf8');
   assert.match(ui,/releaseDatePending/);

@@ -35,9 +35,12 @@ export async function verifyCalendarRegistration({ evaluate, until, check }) {
     await evaluate('document.querySelector("#day-add").click()');
     const form = await evaluate(`({month:document.querySelector('#person-birth-month').value,
       day:document.querySelector('#person-birth-day').value,year:document.querySelector('#person-birth-year').value,
+      mode:document.querySelector('[data-birth-mode=fields]').classList.contains('active'),
       focused:document.activeElement.id,dialogs:document.querySelectorAll('dialog[open]').length})`);
     check(form.month === String(month) && form.day === String(day) && form.year === ''
-      && form.focused === 'person-dialog-title' && form.dialogs === 1, `日付の初期値かダイアログが不正: ${JSON.stringify(form)}`);
+      && form.mode && form.focused === 'person-dialog-title' && form.dialogs === 1, `日付の初期値かダイアログが不正: ${JSON.stringify(form)}`);
+    await evaluate(`document.querySelector('[data-birth-mode=calendar]').click()`);
+    check(await evaluate(`document.querySelector('#birthday-calendar-grid button.selected')?.dataset.day===${JSON.stringify(String(day))}`),'日付からの追加をインラインカレンダーにも同期');
     await closeForm();
     await until(() => evaluate('document.activeElement.classList.contains("day-open")'), 'キャンセル後の日付フォーカス');
     check((await people()).length === 0, 'キャンセルで人物を作成しています。');
@@ -75,7 +78,8 @@ export async function verifyCalendarRegistration({ evaluate, until, check }) {
   check(await evaluate('document.querySelector("#detail-body .item-row") !== null && !document.querySelector("#day-add").hidden && document.querySelector(".detail-top") === null && !document.querySelector("#person-dialog").open'), '予定1件の日付が一覧を経由しません。');
   await evaluate('document.querySelector("#detail-body .item-row").click()');
   check(await evaluate('document.querySelector(".detail-top h3").textContent === "日付導線テスト" && document.querySelector("#day-add").hidden'), '予定項目から人物詳細へ遷移できません。');
-  await evaluate('document.querySelector("#detail-choose").click();window.__openCalendarDay(2029,1,1)');
+  await evaluate(`(()=>{document.querySelector('#detail-dialog').close();document.querySelector('[data-tab=people]').click();
+    document.querySelector('.people-list .person-menu-trigger').click();document.querySelector('#person-action-menu [data-action=move]').click();window.__openCalendarDay(2029,1,1);})()`);
   check(await evaluate('!document.querySelector("#day-assign").hidden'), '既存人物の誕生日選択を失っています。');
   await evaluate('document.querySelector("#day-assign").click()');
   await until(async () => (await people())[0].anniversaries[0].month === 1

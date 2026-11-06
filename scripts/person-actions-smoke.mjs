@@ -24,7 +24,9 @@ export async function verifyPersonActions({evaluate,until,check,command,sleep}) 
     await reload();const people=await read();ids=Object.fromEntries(people.map(p=>[p.displayName,p.id]));
     const trigger=name=>`#people-list [data-menu-person-id="${ids[name]}"]`;
     await evaluate(`document.querySelector('[data-tab=people]').click()`);await click(trigger('操作登録済み'));
-    check(await menuOpen(),'PCの⋯でメニュー');await key('ArrowDown');check(await evaluate('document.activeElement.dataset.action==="edit"'),'メニュー矢印操作');await key('Escape');check(!await menuOpen(),'Escで閉じる');
+    check(await menuOpen(),'PCの⋯でメニュー');await click(trigger('操作登録済み'));
+    check(!await menuOpen()&&await evaluate(`document.querySelector(${JSON.stringify(trigger('操作登録済み'))}).getAttribute('aria-expanded')==='false'`),'同じ⋯の再タップで閉じる');
+    await click(trigger('操作登録済み'));await key('ArrowDown');check(await evaluate('document.activeElement.dataset.action==="edit"'),'メニュー矢印操作');await key('Escape');check(!await menuOpen(),'Escで閉じる');
     await click(trigger('操作登録済み'));await action('edit');check(await evaluate('document.querySelector("#person-dialog").open&&document.querySelector("#person-name").value==="操作登録済み"'),'既存編集フォーム');
     await evaluate('document.querySelector("#person-dialog [data-close]").click()');
     await click(trigger('操作登録済み'));await action('edit');await evaluate(`document.querySelector('#person-memo').value='メニューから編集';document.querySelector('#person-form').requestSubmit()`);

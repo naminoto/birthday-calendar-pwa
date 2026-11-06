@@ -20,6 +20,14 @@ export async function verifyBirthdayUI({evaluate,until,check,command}){
     for(const[name,day,year]of [['同日A',11,1998],['同日B',11,1500],['同日C',11,null],['翌日',12,2099],['今日',10,null],['未登録',null,null]]){
       await evaluate('document.querySelector("[data-tab=calendar]").click();document.querySelector("#calendar-add").click()');await set('#person-name',name);
       if(day){await set('#person-birth-month',5);await set('#person-birth-day',day);}
+      if(name==='同日A'){
+        check(await evaluate(`document.querySelector('[data-birth-mode=fields]').classList.contains('active')&&document.querySelector('#birthday-calendar-panel').hidden`),'誕生日入力は月日方式で開始');
+        await evaluate(`{const button=document.querySelector('[data-birth-mode=calendar]');button.focus({preventScroll:true});button.click();}`);
+        check(await evaluate(`(()=>{const selected=document.querySelector('#birthday-calendar-grid button.selected');return !document.querySelector('#birthday-calendar-panel').hidden&&selected?.dataset.day==='11'&&document.querySelector('#person-name').value==='同日A';})()`),'カレンダー方式へ入力と選択を同期');
+        await evaluate(`document.querySelector('#birthday-calendar-prev').click();document.querySelector('#birthday-calendar-next').click();document.querySelector('#birthday-calendar-grid button[data-day="11"]').click()`);
+        await evaluate(`{const button=document.querySelector('[data-birth-mode=fields]');button.focus({preventScroll:true});button.click();}`);
+        check(await evaluate(`document.querySelector('#person-birth-month').value==='5'&&document.querySelector('#person-birth-day').value==='11'&&document.querySelector('#person-name').value==='同日A'&&!document.querySelector('#person-birth-month').matches(':focus')&&document.activeElement===document.querySelector('[data-birth-mode=fields]')`),'カレンダー選択を月日へ同期し、selectを開かず人物入力と切替ボタンのフォーカスを保持');
+      }
       if(year===1998)await set('#person-birth-year-choice',year);
       else if(year){await set('#person-birth-year-mode','custom');await set('#person-birth-year',year);
         await set('#person-birth-year-mode','select');check(await evaluate(`document.querySelector('#person-birth-year-choice').value==='${year}'&&document.querySelector('#person-birth-year').value==='${year}'`),'候補外年を選択式でも保持');

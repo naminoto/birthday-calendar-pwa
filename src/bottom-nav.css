@@ -1,0 +1,120 @@
+.bottom-nav { isolation:isolate; }
+.bottom-nav-indicator {
+  position:absolute;
+  z-index:0;
+  left:0;
+  top:0;
+  width:var(--nav-indicator-width,0px);
+  height:var(--nav-indicator-height,0px);
+  border-radius:12px;
+  background:var(--soft);
+  pointer-events:none;
+  transform:translate3d(var(--nav-indicator-x,0px),var(--nav-indicator-y,0px),0);
+  will-change:transform;
+}
+.bottom-nav.nav-motion-ready:not(.nav-positioning) .bottom-nav-indicator {
+  transition:transform 340ms cubic-bezier(.22,1,.36,1),width 340ms cubic-bezier(.22,1,.36,1);
+}
+.bottom-nav button {
+  position:relative;
+  z-index:1;
+  touch-action:manipulation;
+}
+.bottom-nav button.active { background:transparent; }
+.bottom-nav .outline-icon { overflow:visible; }
+.nav-icon-person-primary,.nav-icon-person-secondary,
+.nav-icon-home-detail,.nav-icon-calendar-detail,.nav-icon-birthday-flame,.nav-icon-gear {
+  transform-box:fill-box;
+  transform-origin:center;
+}
+.nav-icon-person-primary { transition:transform 220ms ease-out; }
+.nav-icon-person-secondary {
+  opacity:0;
+  transform:translate3d(-4px,1px,0) scale(.72);
+  transition:opacity 180ms ease-out,transform 240ms ease-out;
+}
+.bottom-nav button.active .nav-icon-person-primary { transform:translate3d(-2.4px,0,0); }
+.bottom-nav button.active .nav-icon-person-secondary {
+  opacity:1;
+  transform:translate3d(0,0,0) scale(1);
+}
+.nav-icon-home-detail,.nav-icon-calendar-detail,.nav-icon-birthday-flame {
+  opacity:0;
+  transition:opacity 180ms ease-out,transform 240ms ease-out;
+}
+.nav-icon-home-detail { transform:translate3d(0,1.5px,0) scale(.86); }
+.nav-icon-calendar-detail { transform:translate3d(-1px,1px,0) scale(.82); }
+.nav-icon-birthday-flame { transform:translate3d(0,2px,0) scale(.68); transform-origin:50% 100%; }
+.bottom-nav button.active .nav-icon-home-detail,
+.bottom-nav button.active .nav-icon-calendar-detail,
+.bottom-nav button.active .nav-icon-birthday-flame { opacity:1; transform:translate3d(0,0,0) scale(1); }
+.nav-icon-gear { transform-box:view-box; transform-origin:12px 12px; transform:rotate(0); transition:transform 260ms cubic-bezier(.22,1,.36,1); }
+.bottom-nav button.active[data-tab=settings] .nav-icon-gear { transform:rotate(18deg); }
+.bottom-nav button.nav-icon-animate[data-tab=home] .nav-icon-home-detail {
+  animation:nav-home-detail 600ms both;
+}
+.bottom-nav button.nav-icon-animate[data-tab=calendar] .nav-icon-calendar-detail {
+  animation:nav-calendar-detail 600ms both;
+}
+.bottom-nav button.nav-icon-animate[data-tab=people] .nav-icon-person-primary {
+  animation:nav-person-primary 600ms both;
+}
+.bottom-nav button.nav-icon-animate[data-tab=people] .nav-icon-person-secondary {
+  animation:nav-person-secondary 600ms both;
+}
+.bottom-nav button.nav-icon-animate[data-tab=birthdays] .nav-icon-birthday-flame {
+  animation:nav-birthday-flame 600ms both;
+}
+.bottom-nav button.nav-icon-animate[data-tab=settings] .nav-icon-gear {
+  animation:nav-gear-settle 600ms both;
+}
+@keyframes nav-home-detail {
+  0% { opacity:0; transform:translate3d(0,2px,0) scale(.75); }
+  46% { opacity:1; transform:translate3d(0,-.45px,0) scale(1.045); }
+  72% { transform:translate3d(0,.2px,0) scale(.985); }
+  88% { transform:translate3d(0,-.08px,0) scale(1.006); }
+  100% { opacity:1; transform:translate3d(0,0,0) scale(1); }
+}
+@keyframes nav-calendar-detail {
+  0% { opacity:0; transform:translate3d(-2px,1px,0) scale(.72); }
+  44% { opacity:1; transform:translate3d(.55px,-.25px,0) scale(1.05); }
+  70% { transform:translate3d(-.25px,.1px,0) scale(.985); }
+  87% { transform:translate3d(.08px,0,0) scale(1.006); }
+  100% { opacity:1; transform:translate3d(0,0,0) scale(1); }
+}
+@keyframes nav-person-primary {
+  0% { transform:translate3d(0,0,0); }
+  48% { transform:translate3d(-3.1px,0,0); }
+  72% { transform:translate3d(-2px,0,0); }
+  88% { transform:translate3d(-2.55px,0,0); }
+  100% { transform:translate3d(-2.4px,0,0); }
+}
+@keyframes nav-person-secondary {
+  0% { opacity:0; transform:translate3d(-5px,1px,0) scale(.7); }
+  42% { opacity:1; transform:translate3d(1.2px,0,0) scale(1.04); }
+  68% { transform:translate3d(-.55px,0,0) scale(.985); }
+  86% { transform:translate3d(.2px,0,0) scale(1.005); }
+  100% { opacity:1; transform:translate3d(0,0,0) scale(1); }
+}
+@keyframes nav-birthday-flame {
+  0% { opacity:0; transform:translate3d(0,2px,0) scale(.6) rotate(0); }
+  38% { opacity:1; transform:translate3d(.35px,-.4px,0) scale(1.08) rotate(5deg); }
+  62% { transform:translate3d(-.25px,.15px,0) scale(.97) rotate(-3deg); }
+  82% { transform:translate3d(.1px,-.05px,0) scale(1.01) rotate(1deg); }
+  100% { opacity:1; transform:translate3d(0,0,0) scale(1) rotate(0); }
+}
+@keyframes nav-gear-settle {
+  0% { transform:rotate(0); }
+  48% { transform:rotate(23deg); }
+  72% { transform:rotate(15deg); }
+  88% { transform:rotate(19deg); }
+  100% { transform:rotate(18deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bottom-nav-indicator,.nav-icon-person-primary,.nav-icon-person-secondary,
+  .nav-icon-home-detail,.nav-icon-calendar-detail,.nav-icon-birthday-flame,.nav-icon-gear,
+  .bottom-nav button.nav-icon-animate .outline-icon {
+    transition:none!important;
+    animation:none!important;
+  }
+}

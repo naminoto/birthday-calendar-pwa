@@ -147,7 +147,7 @@ try {
   })()`);
   check(releaseHistory.initiallyClosed && releaseHistory.versions[0]===APP_VERSION
     && releaseHistory.versions.includes('1.4.3') && releaseHistory.title==='更新履歴'
-    && releaseHistory.firstDate==='2026-11-05' && releaseHistory.pending===undefined
+    && releaseHistory.firstDate==='2026-11-06' && releaseHistory.pending===undefined
     && releaseHistory.category==='新機能' && releaseHistory.layouts.every(layout=>!layout.overflow),
     `日本語の更新履歴またはテーマ表示が不正です: ${JSON.stringify(releaseHistory)}`);
   await evaluate(`(()=>{document.querySelector('[data-tab=settings]').click();
@@ -188,7 +188,7 @@ try {
     pending:document.querySelector('#release-history [data-release-key=releaseDatePending]')?.textContent.trim(),
     first:document.querySelector('#release-history .release-entry li').textContent.trim()})`);
   check(releaseHistory.english.title==='Release history' && releaseHistory.english.category==='New features'
-    && releaseHistory.english.firstDate==='2026-11-05' && releaseHistory.english.pending===undefined
+    && releaseHistory.english.firstDate==='2026-11-06' && releaseHistory.english.pending===undefined
     && !/[\u3040-\u30ff\u3400-\u9fff]/.test(releaseHistory.english.first),
     `英語の更新履歴が不正です: ${JSON.stringify(releaseHistory.english)}`);
   await evaluate('document.querySelector("#settings-check-update").click()');

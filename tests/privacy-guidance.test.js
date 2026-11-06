@@ -43,8 +43,8 @@ test('guidance is display-only: no persistence, external requests or contact wid
   assert.doesNotMatch(code,/innerHTML|fetch\(|XMLHttpRequest|indexedDB|localStorage|https:\/\/|mailto:/);
   const css=readFileSync(new URL('../src/yoribi.css',import.meta.url),'utf8');assert.match(css,/\.data-privacy-guide\s*\{[^}]*overflow-wrap:anywhere/);
 });
-test('v1.5.0 keeps database v3 while using backup format v2',()=>{
-  const pkg=JSON.parse(readFileSync(new URL('../package.json',import.meta.url)));assert.equal(pkg.version,'1.5.0');
+test('v1.6.0 keeps database v3 while using backup format v2',()=>{
+  const pkg=JSON.parse(readFileSync(new URL('../package.json',import.meta.url)));assert.equal(pkg.version,'1.6.0');
   const db=readFileSync(new URL('../src/db.js',import.meta.url),'utf8');assert.match(db,/DB_VERSION\s*=\s*3/);
   const backup=readFileSync(new URL('../src/backup.js',import.meta.url),'utf8');assert.match(backup,/FORMAT_VERSION\s*=\s*2/);
 });

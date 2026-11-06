@@ -47,16 +47,43 @@ export function setupOutlineIcons() {
     people:['M8 13a4 4 0 1 0 0-8 4 4 0 0 0 0 8','M2 21v-2a6 6 0 0 1 12 0v2M16 5a4 4 0 0 1 0 8m1 3a5 5 0 0 1 5 5'],
     birthdays:['M12 3v3M5 11h14v10H5ZM5 15h14','M12 6c3 2 2 4 0 4s-3-2 0-4'],
   };
+  const appendPath = (parent, d) => { const path=document.createElementNS(parent.namespaceURI,'path');path.setAttribute('d',d);parent.append(path); };
+  const appendGroup = (parent, className, definitions) => {
+    const group=document.createElementNS(parent.namespaceURI,'g');group.classList.add(className);
+    for(const d of definitions)appendPath(group,d);parent.append(group);return group;
+  };
   const icon = key => {
     const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
     svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('aria-hidden','true');svg.classList.add('outline-icon');
-    for(const d of paths[key]){const path=document.createElementNS(svg.namespaceURI,'path');path.setAttribute('d',d);svg.append(path);}
-    if(key==='settings'){const circle=document.createElementNS(svg.namespaceURI,'circle');circle.setAttribute('cx','12');circle.setAttribute('cy','12');circle.setAttribute('r','3');svg.append(circle);}
+    if(key==='people'){
+      svg.classList.add('nav-icon--people');
+      const primary=document.createElementNS(svg.namespaceURI,'g');primary.classList.add('nav-icon-person-primary');
+      const head=document.createElementNS(svg.namespaceURI,'circle');head.setAttribute('cx','12');head.setAttribute('cy','8.5');head.setAttribute('r','3.5');primary.append(head);
+      // Keep the two shoulder contours separated after the primary figure moves left.
+      appendPath(primary,'M6 21v-1.5a6 6 0 0 1 12 0V21');
+      const secondary=document.createElementNS(svg.namespaceURI,'g');secondary.classList.add('nav-icon-person-secondary');
+      const secondHead=document.createElementNS(svg.namespaceURI,'circle');secondHead.setAttribute('cx','17.3');secondHead.setAttribute('cy','9');secondHead.setAttribute('r','2.5');secondary.append(secondHead);
+      appendPath(secondary,'M16.6 15.5a5.2 5.2 0 0 1 5.4 5.2V21');
+      svg.append(primary,secondary);
+    }else if(key==='home'){
+      for(const d of paths.home)appendPath(svg,d);
+      appendGroup(svg,'nav-icon-home-detail',['M8.5 11.5h7v5h-7Z','M12 11.5v5']);
+    }else if(key==='calendar'){
+      for(const d of paths.calendar)appendPath(svg,d);
+      appendGroup(svg,'nav-icon-calendar-detail',['M9 15l2 2 4-5']);
+    }else if(key==='birthdays'){
+      appendPath(svg,paths.birthdays[0]);
+      appendGroup(svg,'nav-icon-birthday-flame',[paths.birthdays[1]]);
+    }else if(key==='settings'){
+      const gear=document.createElementNS(svg.namespaceURI,'g');gear.classList.add('nav-icon-gear');
+      for(const radius of ['6.5','2.5']){const circle=document.createElementNS(svg.namespaceURI,'circle');circle.setAttribute('cx','12');circle.setAttribute('cy','12');circle.setAttribute('r',radius);gear.append(circle);}
+      appendPath(gear,'M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.28 5.28 7.4 7.4M16.6 16.6l2.12 2.12M18.72 5.28 16.6 7.4M7.4 16.6l-2.12 2.12');
+      svg.append(gear);
+    }else for(const d of paths[key])appendPath(svg,d);
     return svg;
   };
   const bell=document.getElementById('bell');
   [...bell.childNodes].filter(node=>node.nodeType===3).forEach(node=>node.remove());bell.prepend(icon('bell'));
   const actions=document.createElement('div');actions.className='header-actions';bell.before(actions);actions.append(bell);
-  const settings=document.createElement('button');settings.className='icon-button';settings.id='header-settings';settings.type='button';settings.append(icon('settings'));actions.append(settings);
   for(const button of document.querySelectorAll('.bottom-nav [data-tab]'))button.querySelector('span').replaceChildren(icon(button.dataset.tab));
 }

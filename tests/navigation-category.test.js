@@ -36,8 +36,13 @@ test('人物追加は月間カレンダーと人物欄の間で既存フォー�
   const calendar=html.match(/<section class="view" id="view-calendar"[\s\S]*?<\/section>/)[0];
   assert.match(calendar,/id="calendar-grid"[^]*?<\/div><\/div>\s*<button class="quiet calendar-add" id="calendar-add"[^]*?<\/button>\s*<aside class="panel people-rail"/);
   assert.match(calendar,/id="calendar-add" type="button" aria-haspopup="dialog" aria-controls="person-dialog"/);
+  assert.match(calendar,/id="calendar-category-trigger"[^>]*aria-controls="calendar-category-popover"/);
+  assert.match(calendar,/id="rail-category-trigger"[^>]*aria-controls="rail-category-popover"/);
+  assert.ok(!html.includes('id="detail-choose"'));
+  assert.ok(!html.includes('id="header-settings"'));
   const app=readFileSync(new URL('../src/app.js',import.meta.url),'utf8');
   assert.match(app,/\['calendar-add', 'people-add'\].*openForm\(\)/);
+  assert.doesNotMatch(app,/header-settings/);
 });
 test('追加ボタンを重複せず、DOMとPC・スマホの表示順を一致させる',()=>{
   const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');

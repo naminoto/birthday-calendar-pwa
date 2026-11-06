@@ -15,7 +15,9 @@ export async function verifyRailManagement({evaluate,until,check,command,sleep})
     ids=Object.fromEntries((await read())[0].map(p=>[p.displayName,p.id]));
     await click('[data-tab=calendar]');check(await evaluate('!document.querySelector("#calendar-grid .person-menu-trigger")&&document.querySelectorAll("#person-rail .person-menu-trigger").length===3'),'カレンダー⋯だけ除去');
     const before=JSON.stringify(await read());
-    await click('#rail-manage');await click('#rail-manage-menu [data-action=sort]');
+    await click('#rail-manage');check(await evaluate(`(()=>{const items=[...document.querySelectorAll('#rail-manage-menu [data-action]')],sort=document.querySelector('#rail-sort-control'),category=document.querySelector('.rail-category-filter'),registration=document.querySelector('.rail-registration-filter');return items.map(n=>n.dataset.action).join(',')==='bulk'&&items[0].classList.contains('danger-link')&&!sort.hidden&&Boolean(sort.compareDocumentPosition(category)&Node.DOCUMENT_POSITION_FOLLOWING)&&Boolean(category.compareDocumentPosition(registration)&Node.DOCUMENT_POSITION_FOLLOWING);})()`),'管理メニューは一括削除だけを残し、並び順→カテゴリ→全員・未登録の順');
+    await click('#rail-manage');check(await evaluate(`document.querySelector('#rail-manage-menu').hidden&&document.querySelector('#rail-manage').getAttribute('aria-expanded')==='false'`),'管理を再タップして閉じる');
+    await click('#rail-manage');await click('#rail-category-trigger');check(await evaluate(`document.querySelector('#rail-manage-menu').hidden&&!document.querySelector('#rail-category-popover').hidden`),'別ポップオーバーで前のメニューを閉じる');await click('#rail-category-trigger');
     for(const [sort,names]of [['nameAsc',['Alpha','Beta','Gamma']],['nameDesc',['Gamma','Beta','Alpha']],['birthday',['Beta','Alpha','Gamma']],['newest',['Alpha','Gamma','Beta']],['oldest',['Beta','Gamma','Alpha']]]){
       await evaluate(`{const s=document.querySelector('#rail-sort');s.value='${sort}';s.dispatchEvent(new Event('change'));}`);
       check(JSON.stringify(await evaluate('[...document.querySelectorAll("#person-rail .avatar-person small")].map(n=>n.textContent)'))===JSON.stringify(names),'人物欄ソート '+sort);
@@ -24,8 +26,8 @@ export async function verifyRailManagement({evaluate,until,check,command,sleep})
     await enter();check(await evaluate('document.querySelectorAll("[data-bulk-person-id]").length===3&&document.querySelector("#rail-delete-selected").disabled'),'チェックボックスと0件保護');
     const select=name=>click(`[data-bulk-person-id="${ids[name]}"]`);
     await select('Alpha');await select('Beta');check(await evaluate('document.querySelector("#rail-selected-count").textContent.includes("2")'),'選択数');
-    await evaluate('window.__bulkConfirm=window.confirm;window.confirm=m=>{window.__bulkMessage=m;return false;}');await click('#rail-delete-selected');
-    check(await evaluate('window.__bulkMessage.includes("2")&&window.__bulkMessage.includes("Alpha")&&window.__bulkMessage.includes("Beta")'),'人数と全対象名の確認');check(JSON.stringify(await read())===before,'確認キャンセルで全データ不変');
+    await click('#rail-delete-selected');
+    check(await evaluate('document.querySelector("#rail-delete-dialog").open&&document.querySelector("#rail-delete-description").textContent.includes("2")&&document.querySelector("#rail-delete-names").textContent.includes("Alpha")&&document.querySelector("#rail-delete-names").textContent.includes("Beta")&&getComputedStyle(document.querySelector("#rail-delete-confirm")).color!==getComputedStyle(document.querySelector("#rail-delete-cancel")).color'),'赤い確定ボタン・人数・全対象名の確認');await click('#rail-delete-cancel');check(JSON.stringify(await read())===before,'確認キャンセルで全データ不変');
     // 一括モードではカレンダー・人物欄双方のPointerドラッグを開始しない。
     for(const selector of ['#calendar-grid .calendar-event','#person-rail .bulk-person']){
       const p=await evaluate(`(()=>{const n=document.querySelector('${selector}');n.scrollIntoView({block:'center'});const r=n.getBoundingClientRect();return{x:r.left+r.width/2,y:r.top+r.height/2};})()`);
@@ -37,8 +39,11 @@ export async function verifyRailManagement({evaluate,until,check,command,sleep})
     await enter();await select('Alpha');await click('[data-rail-filter=unregistered]');
     check(await evaluate('document.querySelectorAll("[data-bulk-person-id]").length===1&&document.querySelectorAll("[data-bulk-person-id]:checked").length===0&&document.querySelector("#rail-delete-selected").disabled'),'フィルター変更で見えない選択を残さない');
     await click('#rail-bulk-cancel');await click('[data-rail-filter=all]');
+    await click('#rail-category-trigger');const railTopBefore=await evaluate('document.querySelector("#calendar-grid").getBoundingClientRect().top+scrollY');await click('#rail-category-options input[data-rail-category-id=OTHER]');
+    check(await evaluate('document.querySelector("#rail-category-popover").hidden===false&&document.querySelectorAll("#person-rail .avatar-person").length===0'),'人物カテゴリ複数選択はポップオーバーを閉じず独立絞り込み');
+    check(await evaluate(`Math.abs(document.querySelector('#calendar-grid').getBoundingClientRect().top+scrollY-(${JSON.stringify(railTopBefore)}))<1`),'人物カテゴリポップオーバーでカレンダーを押し下げない');await click('#rail-categories-reset');check(await evaluate('document.querySelectorAll("#person-rail .avatar-person").length===3'),'人物カテゴリ絞り込み解除');await click('#rail-category-trigger');check(await evaluate(`document.querySelector('#rail-category-popover').hidden&&document.querySelector('#rail-category-trigger').getAttribute('aria-expanded')==='false'`),'カテゴリを再タップして閉じる');
     await enter();await select('Alpha');await select('Beta');
-    await evaluate(`window.confirm=()=>true;(()=>{const original=IDBDatabase.prototype.transaction;IDBDatabase.prototype.transaction=function(stores,mode,...args){const tx=original.call(this,stores,mode,...args);if(mode==='readwrite'&&[...tx.objectStoreNames].includes('people')){IDBDatabase.prototype.transaction=original;queueMicrotask(()=>tx.abort());}return tx;};document.querySelector('#rail-delete-selected').click();})()`);
+    await evaluate(`(()=>{const original=IDBDatabase.prototype.transaction;IDBDatabase.prototype.transaction=function(stores,mode,...args){const tx=original.call(this,stores,mode,...args);if(mode==='readwrite'&&[...tx.objectStoreNames].includes('people')){IDBDatabase.prototype.transaction=original;queueMicrotask(()=>tx.abort());}return tx;};document.querySelector('#rail-delete-selected').click();document.querySelector('#rail-delete-confirm').click();})()`);
     await until(()=>evaluate('!document.querySelector("#rail-error").hidden&&!document.querySelector("#rail-delete-selected").disabled'),'一括保存失敗表示');check(JSON.stringify(await read())===before,'一括失敗で画像・記念日・設定・通知を保持');
     check(await evaluate('document.querySelectorAll("[data-bulk-person-id]:checked").length===2'),'失敗時の選択保持');await click('#rail-bulk-cancel');
     let layouts=0;
@@ -51,12 +56,12 @@ export async function verifyRailManagement({evaluate,until,check,command,sleep})
       if(width===390){await evaluate('document.querySelector(".people-rail").scrollIntoView({block:"center"})');mkdirSync('test-artifacts',{recursive:true});writeFileSync(`test-artifacts/rail-management-${language}-${theme}-390.png`,Buffer.from((await command('Page.captureScreenshot',{format:'png'})).data,'base64'));}
       await click('#rail-bulk-cancel');layouts++;
     }
-    await enter();await select('Alpha');await select('Beta');await click('#rail-delete-selected');await until(async()=>(await read())[0].length===1,'一括削除成功');
+    await enter();await select('Alpha');await select('Beta');await click('#rail-delete-selected');await click('#rail-delete-confirm');await until(async()=>(await read())[0].length===1,'一括削除成功');
     const after=await read();check(after[0][0].displayName==='Gamma'&&after[1].length===0&&after[3].length===0,'対象画像・記念日・通知を整理し他人物を保持');
     return{calendarEllipsisRemoved:true,sorts:5,sortDoesNotWrite:true,bulkCancel:true,bulkFailureAtomic:true,selectionRetained:true,dragDisabled:true,escape:true,bulkDelete:true,relatedData:true,layouts};
   }finally{
     await command('Emulation.setTouchEmulationEnabled',{enabled:false});await command('Page.removeScriptToEvaluateOnNewDocument',{identifier:clock.identifier});
-    await evaluate(`(async()=>{if(window.__bulkConfirm)window.confirm=window.__bulkConfirm;const r=indexedDB.open('birthday-circle-local'),db=await new Promise(done=>r.onsuccess=()=>done(r.result)),tx=db.transaction(['people','images','notifications'],'readwrite');for(const name of ['people','images','notifications'])tx.objectStore(name).clear();await new Promise(done=>tx.oncomplete=done);db.close();document.querySelector('[data-tab=settings]').click();for(const [id,value]of [['language-choice','ja'],['theme-choice','light']]){const n=document.getElementById(id);n.value=value;n.dispatchEvent(new Event('change'));}})()`);
+    await evaluate(`(async()=>{const r=indexedDB.open('birthday-circle-local'),db=await new Promise(done=>r.onsuccess=()=>done(r.result)),tx=db.transaction(['people','images','notifications'],'readwrite');for(const name of ['people','images','notifications'])tx.objectStore(name).clear();await new Promise(done=>tx.oncomplete=done);db.close();document.querySelector('[data-tab=settings]').click();for(const [id,value]of [['language-choice','ja'],['theme-choice','light']]){const n=document.getElementById(id);n.value=value;n.dispatchEvent(new Event('change'));}})()`);
     await command('Page.reload');await until(()=>evaluate('!!document.querySelector("#app-version")?.textContent'),'管理テスト終了');await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
   }
 }
